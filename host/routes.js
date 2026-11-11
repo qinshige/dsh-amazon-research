@@ -7,6 +7,8 @@ const API_PREFIX = '/amazon-research/api';
 const MAX_JSON_BYTES = 64 * 1024;
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 const FILE_WHITELIST = /^(report\.md|dashboard\.html|scores\.json|market\.json|manifest\.json|tables\/[\p{L}\p{N}._-]+\.csv)$/u;
+/** 数据源状态探测超时（毫秒）——必须显著小于前端 8 秒超时。 */
+const PROVIDER_PROBE_TIMEOUT_MS = 2500;
 
 function isLoopback(request) {
   const address = request?.socket?.remoteAddress ?? '';
@@ -122,10 +124,21 @@ export function registerRoutes(ctx, deps) {
         const runs = [...merged.values()]
           .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
           .slice(0, 30);
+        // 数据源状态探测必须有超时保护：任何一个慢探针（比如需要驱动浏览器的网页链路）
+        // 都不该拖垮整个面板请求（前端只等 8 秒）。
+        const withTimeout = (promise, ms, fallback) =>
+          Promise.race([
+            promise.catch((error) => ({ ok: false, lastError: String(error?.message ?? error) })),
+            new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+          ]);
         const providersInfo = await Promise.all(
           providers.list().map(async (p) => {
             if (p.id === 'sellersprite-web') {
-              const status = await providers.status(p.id).catch((error) => ({ ok: false, lastError: String(error?.message ?? error) }));
+              const status = await withTimeout(
+                providers.status(p.id),
+                PROVIDER_PROBE_TIMEOUT_MS,
+                { ok: false, lastError: '数据源状态探测超时' },
+              );
               return {
                 id: p.id,
                 label: p.label,

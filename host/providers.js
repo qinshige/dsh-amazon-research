@@ -24,7 +24,7 @@ export const PROVIDER_DEFS = {
   },
 };
 
-/** 网页登录态 provider（不��要 key，但需要用户在 Chrome 里已登录） */
+/** 网页登录态 provider（不需要 key，但需要用户在 Chrome 里已登录） */
 export const WEB_PROVIDER_IDS = ['sellersprite-web'];
 
 export class Providers {
@@ -69,7 +69,12 @@ export class Providers {
   /** 数据源健康状态（未配置 key 时不发请求） */
   async status(id) {
     if (id === sellerspriteWebProvider.id) {
-      const health = await sellerspriteWebProvider.health();
+      // 网页链路的健康检查要驱动浏览器，必须有超时兜底，
+      // 否则一次卡住的 AppleScript 调用会让面板整体请求超时。
+      const health = await Promise.race([
+        sellerspriteWebProvider.health().catch((error) => ({ ok: false, error: String(error?.message ?? error) })),
+        new Promise((resolve) => setTimeout(() => resolve({ ok: false, error: '网页登录态探测超时' }), 2000)),
+      ]);
       return {
         id,
         label: sellerspriteWebProvider.label,
