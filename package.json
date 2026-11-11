@@ -1,0 +1,61 @@
+{
+  "name": "dsh-amazon-research",
+  "version": "0.1.2",
+  "description": "亚马逊选品研究（DeepSeek Harness 插件）：类目市场取数、五维评分（92 分制归一化）、选品报告与侧栏面板",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "amazon",
+    "product-selection",
+    "sellersprite"
+  ],
+  "license": "MIT",
+  "author": "qsg",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qinshige/dsh-amazon-research.git"
+  },
+  "bugs": {
+    "url": "https://github.com/qinshige/dsh-amazon-research/issues"
+  },
+  "homepage": "https://github.com/qinshige/dsh-amazon-research#readme",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "host",
+    "skills",
+    "cordis.patch.yml",
+    "README.md",
+    "icon.svg",
+    "LICENSE",
+    "CONTRACTS.md",
+    "CONTRACTS-2.md"
+  ],
+  "engines": {
+    "node": ">=22.19.0",
+    "dsh": ">=0.2.0-rc.2 <0.3.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check index.js && node --check client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  }
+}

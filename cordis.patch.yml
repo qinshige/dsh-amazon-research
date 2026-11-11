@@ -1,0 +1,7 @@
+# dsh-amazon-research 的 bundle patch：把插件宿主行插入 profile 层栈。
+# 后层按 id 覆盖前层；config 整段替换（需要覆盖时请重述全部键）。
+- insert:
+    - id: dsh-amazon-research
+      name: dsh-amazon-research
+      config:
+        dataDir: ''
