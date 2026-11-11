@@ -1,6 +1,5 @@
 # dsh-amazon-research · 内部接口契约（v0.1，团队共用）
 
-> 上游参考仓库：[liangdabiao/amazon-sorftime-research-MCP-skill](https://github.com/liangdabiao/amazon-sorftime-research-MCP-skill)（只读参考）
 > 目标：Amazon 品类选品（第一家数据源 Sellersprite，key 由用户在设置页自己填）。
 
 ## 1. 归一化对象 `Market`（`host/normalize.js` 产出，分析引擎唯一输入）
