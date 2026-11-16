@@ -8,7 +8,7 @@ import { buildSelectionPlan, amazonDomain } from '../host/selection/channels.js'
 import { suggestDifferentiation } from '../host/selection/differentiate.js';
 import { inputFingerprint, parseCsv, screenCandidates } from '../host/selection/pipeline.js';
 import { decide, evaluateProfileFit } from '../host/selection/profiles.js';
-import { buildDecisionBrief } from '../host/selection/brief.js';
+import { buildDecisionBrief, compareChannels } from '../host/selection/brief.js';
 import { sensitivity } from '../host/selection/report.js';
 import { scoreMarket } from '../host/scoring.js';
 import { renderCategoryReport } from '../host/report.js';
@@ -209,6 +209,32 @@ test('体检落盘：report.md 含四途径、十维、否决、差异化与追�
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('渠道对照：同一品在 FBA 亏、TikTok Shop 能跑', () => {
+  const row = { ...baseRow, 售价USD: 5.49, 采购价CNY: 2.96, 重量g: 56 };
+  const fba = evaluateCandidate(row, { channel: 'amazon-fba' });
+  const tk = evaluateCandidate(row, { channel: 'tiktok-shop' });
+  assert.ok(fba.margin < 0, 'Amazon FBA 在 $5.49 应为负');
+  assert.ok(tk.margin > 0, 'TikTok Shop 应为正');
+  const rows = compareChannels(fba, { fx: 7.1 });
+  assert.equal(rows.length, 3);
+  const fbaRow = rows.find((item) => item.channel === 'amazon-fba');
+  const tkRow = rows.find((item) => item.channel === 'tiktok-shop');
+  assert.ok(fbaRow.fulfillmentUSD > 3, 'FBA 履约费应 > $3');
+  assert.ok(tkRow.referralRate < fbaRow.referralRate, 'TK 佣金应低于 Amazon');
+  assert.ok(tkRow.netMargin > fbaRow.netMargin);
+  assert.ok(rows.find((item) => item.channel === 'amazon-fbm').caveat.includes('买家运费'));
+});
+
+test('画像价格带随渠道变化：$9.99 在 Amazon 不合格、在 TK 合格', () => {
+  const candidate = evaluateCandidate({ ...baseRow, 售价USD: 9.99, 采购价CNY: 2.96, 重量g: 56 });
+  const amazonFit = evaluateProfileFit(candidate, 'beginner', 'amazon-fba');
+  const tkFit = evaluateProfileFit(candidate, 'beginner', 'tiktok-shop');
+  assert.ok(amazonFit.fails.some((item) => item.label.includes('售价')), 'Amazon 新手带下限 $15，$9.99 应不合格');
+  assert.ok(!tkFit.fails.some((item) => item.label.includes('售价')), 'TK 带 $8–25，$9.99 应合格');
+  assert.equal(tkFit.priceBand.min, 8);
+  assert.equal(amazonFit.priceBand.min, 15);
 });
 
 test('高集中度时不能再写「头部未完全垄断」', () => {

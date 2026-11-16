@@ -9,7 +9,7 @@ import { createRun, writeArtifacts } from '../runs.js';
 import { buildSelectionPlan } from './channels.js';
 import { evaluateBatch } from './kpis.js';
 import { suggestDifferentiation } from './differentiate.js';
-import { buildDecisionBrief, coachFor } from './brief.js';
+import { buildDecisionBrief, coachFor, compareChannels } from './brief.js';
 import { decide, evaluateProfileFit, getProfile } from './profiles.js';
 import { renderSelectionReport, renderSelectionCsv, sensitivity } from './report.js';
 
@@ -114,6 +114,7 @@ export async function screenCandidates({
   plan = null,
   profile = 'beginner',
   targetMonthlyUnits = null,
+  channel = 'amazon-fba',
 } = {}) {
   const list = Array.isArray(rows) ? rows.filter((row) => row && typeof row === 'object') : [];
   if (list.length === 0) {
@@ -133,13 +134,14 @@ export async function screenCandidates({
   }
 
   const prof = getProfile(profile);
-  const batch = evaluateBatch(list, { fx });
+  const batch = evaluateBatch(list, { fx, channel });
   for (const item of batch.results) {
-    item.profileFit = evaluateProfileFit(item, prof);
+    item.profileFit = evaluateProfileFit(item, prof, channel);
     item.decision = decide(item, item.profileFit, prof);
     item.differentiation = suggestDifferentiation(item);
     if (item.profit) item.sensitivity = sensitivity(item.profit);
     item.brief = buildDecisionBrief({ candidate: item, profile: prof, targetMonthlyUnits, fx });
+    item.brief.channels = compareChannels(item, { fx });
     item.coach = coachFor(item, item.brief);
   }
   batch.summary.decisions = {
@@ -175,6 +177,7 @@ export async function screenCandidates({
     targetMonthlyUnits,
     runId: run.runId,
     inputHash,
+    channel,
     artifacts: artifactNames.map((name) => ({ name })),
   });
   const manifest = {
@@ -193,6 +196,7 @@ export async function screenCandidates({
     nodeIdPath: planData?.nodeIdPath || '',
     category: planData?.category || '',
     profile: prof.id,
+    channel,
     inputHash,
     engine: 'selection-v1',
   };
@@ -206,6 +210,7 @@ export async function screenCandidates({
     generatedAt,
     engine: 'selection-v1',
     profile: prof.id,
+    channel,
     title,
     marketplace: site,
     source,
@@ -257,6 +262,7 @@ export async function screenCandidates({
     generatedAt,
     inputHash,
     profile: prof.id,
+    channel,
     brief: batch.results[0]?.brief || null,
   };
 }

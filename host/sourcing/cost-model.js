@@ -1,3 +1,5 @@
+import { resolveChannel } from './channels.js';
+
 /**
  * dsh-amazon-research · host/sourcing/cost-model.js
  * 全成本落地测算 + 净利率口径的利润判定（纯函数 / ESM / 无网络 / 无第三方依赖）。
@@ -152,6 +154,41 @@ export function estimateFbaFee(weightG) {
 }
 
 /**
+ * 按渠道解析履约成本。
+ *   - amazon-fba：按件重档位表（FBA 配送费）
+ *   - amazon-fbm：无平台配送费（买家运费自理 / 自行处理退货）
+ *   - 跨境直发：每件基础 + 每 kg 增量（头程并入，不再单算）
+ */
+function resolveFulfillment(channel, { givenFeeUSD, weightG, assumedWeightG }) {
+  if (givenFeeUSD !== null) {
+    return { feeUSD: givenFeeUSD, label: '按给定值', estimated: false, reason: null, oz: null, weightG };
+  }
+  if (channel.fulfillment === 'fbm') {
+    return {
+      feeUSD: 0,
+      label: '自发货（无平台配送费）',
+      estimated: false,
+      reason: '买家运费与退货处理需自行承担',
+      oz: null,
+      weightG,
+    };
+  }
+  if (channel.fulfillment === 'cross') {
+    const grams = weightG !== null && weightG > 0 ? weightG : assumedWeightG;
+    const feeUSD = channel.fulfillmentBaseUSD + (grams / 1000) * channel.fulfillmentPerKgUSD;
+    return {
+      feeUSD,
+      label: '跨境直发物流（每件 $' + channel.fulfillmentBaseUSD.toFixed(2) + ' + $' + channel.fulfillmentPerKgUSD.toFixed(2) + '/kg）',
+      estimated: true,
+      reason: '跨境运费为估算值，按实际渠道报价替换',
+      oz: null,
+      weightG: grams,
+    };
+  }
+  return estimateFbaFee(weightG);
+}
+
+/**
  * 单件全成本拆解（纯函数）。
  *
  * @param {object} params
@@ -166,38 +203,45 @@ export function estimateFbaFee(weightG) {
  * @param {number} [params.otherUSD=0.35] 仓储/其它
  * @param {number} params.priceUSD 售价（Amazon 侧，USD）
  * @param {object} [params.sources] 每个参数的来源标注（'实测值' / '估算值'）
+ * @param {string} [params.channel] 销售渠道 id：amazon-fba / amazon-fbm / tiktok-shop（默认 amazon-fba）
+ * @param {string} [params.channel] 销售渠道 id：amazon-fba / amazon-fbm / tiktok-shop（默认 amazon-fba）
  * @param {string[]} [params.notes] 额外备注
  * @returns {object|null} 测算结果；售价或采购价不可用时返回 null
  */
 export function landedCost(params = {}) {
   const source = params && typeof params === 'object' ? params : {};
+  const channel = resolveChannel(source.channel);
   const purchaseCNY = num(source.priceCNY);
   const sellingUSD = num(source.priceUSD);
   if (purchaseCNY === null || purchaseCNY < 0 || sellingUSD === null || !(sellingUSD > 0)) return null;
 
   const def = DEFAULT_COST_PARAMS;
   const fx = positiveOr(source.fx, def.fx);
-  const firstMilePerKgCNY = positiveOr(source.firstMilePerKgCNY, def.firstMilePerKgCNY);
-  const referralRate = rateOr(source.referralRate, def.referralRate);
-  const adRate = rateOr(source.adRate, def.adRate);
-  const returnRate = rateOr(source.returnRate, def.returnRate);
-  const otherUSD = nonNegativeOr(source.otherUSD, def.otherUSD);
+  const firstMilePerKgCNY = positiveOr(source.firstMilePerKgCNY, channel.firstMilePerKgCNY);
+  const referralRate = rateOr(source.referralRate, channel.referralRate);
+  const adRate = rateOr(source.adRate, channel.adRate);
+  const returnRate = rateOr(source.returnRate, channel.returnRate);
+  const otherUSD = nonNegativeOr(source.otherUSD, channel.otherUSD);
 
   const weightGrams = num(source.weightG);
   const hasWeight = weightGrams !== null && weightGrams > 0;
 
   const givenFba = num(source.fbaFeeUSD);
   const useGivenFba = givenFba !== null && givenFba >= 0;
-  const fba = useGivenFba
-    ? { feeUSD: givenFba, label: '按给定值', estimated: false, reason: null, oz: null, weightG: hasWeight ? weightGrams : null }
-    : estimateFbaFee(hasWeight ? weightGrams : null);
 
   const purchaseUSD = purchaseCNY / fx;
   // 件重未知时，头程**不能按 0 计**——那会系统性高估净利率（实测：浴巾挂钩重量未取到，
   // 头程按 0 算会让净利率从 -84% 虚高到 +31%）。这里按保守假设 500g（中号标准件档）计，
   // 并在 notes 里标注「件重未取到，头程按 500g 保守假设」。
   const assumedWeightG = hasWeight ? weightGrams : (num(source.assumedWeightG) ?? 500);
+
+  const fba = resolveFulfillment(channel, {
+    givenFeeUSD: useGivenFba ? givenFba : null,
+    weightG: hasWeight ? weightGrams : null,
+    assumedWeightG,
+  });
   const firstMileUSD = (assumedWeightG / 1000) * firstMilePerKgCNY / fx;
+  const fulfillmentUSD = fba.feeUSD;
   const referralUSD = sellingUSD * referralRate;
   const adUSD = sellingUSD * adRate;
   const returnUSD = sellingUSD * returnRate;
@@ -222,13 +266,16 @@ export function landedCost(params = {}) {
     ? `件重 ${round(weightGrams, 1)} g（${src.weight ?? '实测值'}，1688 详情页商品件重尺）`
     : `件重未取到：头程按 ${round(assumedWeightG, 0)}g 保守假设计（${src.weight ?? '未取到'}），FBA 按小号标准件最低档估算；本行净利率置信度低`);
   push(`汇率 ${fx} CNY/USD（${src.fx ?? '估算值'}，按当期汇率替换）`);
-  push(`头程 ¥${firstMilePerKgCNY}/kg（${src.firstMile ?? '估算值'}，含海运 + 贴标 + 操作摊销）`);
-  push(`平台佣金 ${pct(referralRate)}（${src.referral ?? '估算值'}，经验默认值：家居 15% / 服饰 17% / 美妆 8% / 电子 8%）`);
-  push(`FBA 配送费 ${usd(fba.feeUSD)}（${src.fba ?? (useGivenFba ? '实测值' : '估算值')}，${fba.label}${fba.reason ? '；' + fba.reason : ''}）`);
+  push(`渠道：${channel.label}`);
+  if (firstMilePerKgCNY > 0) push(`头程 ¥${firstMilePerKgCNY}/kg（${src.firstMile ?? '估算值'}，含海运 + 贴标 + 操作摊销）`);
+  else push('头程：跨境直发渠道，运费并入履约成本，不单算');
+  push(`平台佣金 ${pct(referralRate)}（${src.referral ?? '估算值'}，渠道默认值）`);
+  const fulfillmentLabel = channel.fulfillment === 'fba' ? 'FBA 配送费' : '履约成本';
+  push(`${fulfillmentLabel} ${usd(fba.feeUSD)}（${src.fba ?? (useGivenFba ? '实测值' : '估算值')}，${fba.label}${fba.reason ? '；' + fba.reason : ''}）`);
   push(`广告 ${pct(adRate)}（${src.ad ?? '估算值'}，经验默认值：新卖家按 12%–15% 更稳）`);
   push(`退货损耗 ${pct(returnRate)}（${src.return ?? '估算值'}，质量差/易碎调到 8%–10%）`);
   push(`仓储/其它 ${usd(otherUSD)}（${src.other ?? '估算值'}，经验默认值 $0.30–$0.50）`);
-  push('口径：净利率 = （售价 − 采购 − 头程 − FBA − 佣金 − 广告 − 退货 − 其它）÷ 售价（扣完全部科目）');
+  push('口径：净利率 = （售价 − 采购 − 头程 − 履约 − 佣金 − 广告 − 退货 − 其它）÷ 售价（扣完全部科目）');
   if (Array.isArray(source.notes)) {
     for (const note of source.notes) push(note);
   }
@@ -276,6 +323,8 @@ export function landedCost(params = {}) {
       return: src.return ?? '估算值',
       other: src.other ?? '估算值',
     },
+    channel: channel.id,
+    channelLabel: channel.label,
     notes,
   };
 }

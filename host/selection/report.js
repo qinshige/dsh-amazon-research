@@ -124,7 +124,7 @@ function planSection(plan) {
  * 渲染选品体检报告。
  * @param {{title:string, marketplace:string, generatedAt:string, batch:object, plan?:object, source?:string, fx?:number}} params
  */
-export function renderSelectionReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, plan = null, source = '手动/采集表', fx = 7.1, runId = '', inputHash = '', artifacts = [], profile = null, targetMonthlyUnits = null } = {}) {
+export function renderSelectionReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, plan = null, source = '手动/采集表', fx = 7.1, runId = '', inputHash = '', artifacts = [], profile = null, targetMonthlyUnits = null, channel = 'amazon-fba' } = {}) {
   const results = batch?.results || [];
   const summary = batch?.summary || { tiers: {}, commonGaps: [], vetoed: 0, needsReview: [], avgMargin: null };
   const lines = [];
@@ -203,7 +203,30 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
     push('本批没有候选数据：先按第二节抓候选、填采集表。', '');
   }
 
-  push('### 1.3 分档统计与候选', '');
+    if (brief.channels && brief.channels.length > 1) {
+      push('### 1.3 渠道对照（同一个品，换渠道就是另一门生意）', '');
+      push(...table(['渠道', '履约成本', '佣金', '广告', '退货', '净利率', '判读'], brief.channels.map((row) => [
+        row.label,
+        money(row.fulfillmentUSD) + '（' + row.fulfillmentLabel + '）',
+        pct(row.referralRate, 0),
+        pct(row.adRate, 0),
+        pct(row.returnRate, 0),
+        pct(row.netMargin, 1),
+        row.verdict,
+      ])));
+      push('');
+      const best = brief.channels.slice().sort((a, b) => b.netMargin - a.netMargin)[0];
+      const worst = brief.channels.slice().sort((a, b) => a.netMargin - b.netMargin)[0];
+      push('> 当前按 **' + channel + '** 判定；在 **' + best.label + '** 净利率为 ' + pct(best.netMargin, 1) + '，在 **' + worst.label + '** 为 ' + pct(worst.netMargin, 1) + '。渠道选错，结论就反了。', '');
+      push('> 口径说明：本表按**各渠道默认费率**测算（未套用采集表里的类目退货率等实测值），与第一节的净利率可能有小幅差异；跨境运费、达人佣金均为估算值，须用你的实际账单替换。', '');
+      const caveats = brief.channels.filter((row) => row.caveat);
+      if (caveats.length > 0) {
+        for (const row of caveats) push('> ⚠️ ' + row.label + '：' + row.caveat);
+        push('');
+      }
+      push('');
+    }
+  push('### 1.4 分档统计与候选', '');
   push('**分档：' + TIER_ORDER.map((tier) => tier + ' ' + (summary.tiers[tier] || 0)).join(' ｜ ') + '**', '');
   if (summary.decisions) {
     push('**结论分布：' + Object.entries(summary.decisions).map(([key, value]) => key + ' ' + value).join(' ｜ ') + '**', '');

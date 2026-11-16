@@ -10,6 +10,12 @@ export const PROFILES = Object.freeze({
     label: '新手（资金 <10 万，无稳定供应链）',
     priceMin: 15,
     priceMax: 35,
+    /** 渠道专属价格带（覆盖 priceMin/priceMax） */
+    priceBands: Object.freeze({
+      'amazon-fba': Object.freeze({ min: 15, max: 35 }),
+      'amazon-fbm': Object.freeze({ min: 15, max: 60 }),
+      'tiktok-shop': Object.freeze({ min: 8, max: 25 }),
+    }),
     maxWeightG: 500,
     maxVariants: 2,
     forbidCertification: true,
@@ -25,6 +31,11 @@ export const PROFILES = Object.freeze({
     label: '进阶（资金 10–50 万，有稳定供应商）',
     priceMin: 15,
     priceMax: 45,
+    priceBands: Object.freeze({
+      'amazon-fba': Object.freeze({ min: 15, max: 45 }),
+      'amazon-fbm': Object.freeze({ min: 15, max: 80 }),
+      'tiktok-shop': Object.freeze({ min: 8, max: 30 }),
+    }),
     maxWeightG: 2000,
     maxVariants: 3,
     forbidCertification: false,
@@ -40,6 +51,11 @@ export const PROFILES = Object.freeze({
     label: '工厂型（自有产线/可开模）',
     priceMin: 30,
     priceMax: 120,
+    priceBands: Object.freeze({
+      'amazon-fba': Object.freeze({ min: 30, max: 120 }),
+      'amazon-fbm': Object.freeze({ min: 25, max: 200 }),
+      'tiktok-shop': Object.freeze({ min: 15, max: 60 }),
+    }),
     maxWeightG: 20000,
     maxVariants: 5,
     forbidCertification: false,
@@ -72,15 +88,16 @@ function checkNumber(candidate, key) {
  * 画像适配：返回适合 / 需条件 / 不适合，以及具体原因。
  * 只判「这个品适不适合你」，不重复十维的质量判断。
  */
-export function evaluateProfileFit(candidate, profileInput = 'beginner') {
+export function evaluateProfileFit(candidate, profileInput = 'beginner', channel = 'amazon-fba') {
   const profile = typeof profileInput === 'string' ? getProfile(profileInput) : (profileInput || PROFILES.beginner);
   const fails = [];
   const warnings = [];
   const price = candidate.priceUSD;
+  const band = (profile.priceBands && profile.priceBands[channel]) || { min: profile.priceMin, max: profile.priceMax };
 
   if (price !== null && price !== undefined) {
-    if (price < profile.priceMin) fails.push({ label: '售价低于画像下限', detail: '$' + price.toFixed(2) + ' < $' + profile.priceMin });
-    if (price > profile.priceMax) fails.push({ label: '售价高于画像上限', detail: '$' + price.toFixed(2) + ' > $' + profile.priceMax });
+    if (price < band.min) fails.push({ label: '售价低于画像下限', detail: '$' + price.toFixed(2) + ' < $' + band.min + '（' + channel + '）' });
+    if (price > band.max) fails.push({ label: '售价高于画像上限', detail: '$' + price.toFixed(2) + ' > $' + band.max + '（' + channel + '）' });
   }
 
   const weight = candidate.inputs ? candidate.inputs.weightG : null;
@@ -113,7 +130,7 @@ export function evaluateProfileFit(candidate, profileInput = 'beginner') {
   }
 
   const status = fails.length > 0 ? '不适合' : (warnings.length > 0 ? '需条件' : '适合');
-  return { profileId: profile.id, status, fails, warnings };
+  return { profileId: profile.id, channel, priceBand: band, status, fails, warnings };
 }
 
 /** 结论：把十维档位 + 画像适配合成一句人话。 */

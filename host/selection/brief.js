@@ -5,6 +5,8 @@
  * 只做**由已有数据可推导**的结论；竞品明细不足时明确说「未提供」。
  */
 import { getProfile } from './profiles.js';
+import { listChannels, resolveChannel } from '../sourcing/channels.js';
+import { landedCost } from '../sourcing/cost-model.js';
 
 function n(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -23,6 +25,51 @@ function cny(value) {
 function pct(value, digits = 1) {
   const v = n(value);
   return v === null ? '—' : (v * 100).toFixed(digits) + '%';
+}
+
+/**
+ * 渠道对照：同一个品在不同渠道的净利率。
+ *
+ * 为什么必须有（实测：Work Glove Holders 4 件装，售价 $5.49）：
+ *   Amazon FBA 的小号标准件配送费 $3.22 会吃掉 59% 收入 → 必亏；
+ *   TikTok Shop 佣金 6%、无 FBA 费、跨境直发 → 可以赚。
+ *   只按一个渠道判生死，会对做 TK / 独立站 / 线下渠道的卖家系统性误判。
+ */
+export function compareChannels(candidate, { fx = 7.1 } = {}) {
+  const inputs = candidate.inputs || {};
+  if (inputs.purchaseCNY === null || inputs.purchaseCNY === undefined) return null;
+  if (!candidate.priceUSD) return null;
+  const rows = [];
+  for (const model of listChannels()) {
+    const channel = resolveChannel(model.id);
+    const calc = landedCost({
+      channel: channel.id,
+      priceCNY: inputs.purchaseCNY,
+      weightG: inputs.weightG ?? null,
+      priceUSD: candidate.priceUSD,
+      fx,
+    });
+    if (!calc) continue;
+    rows.push({
+      channel: channel.id,
+      label: channel.label,
+      fulfillmentUSD: calc.fbaFeeUSD,
+      fulfillmentLabel: calc.fbaLabel,
+      referralRate: channel.referralRate,
+      adRate: channel.adRate,
+      returnRate: channel.returnRate,
+      netMargin: calc.netMargin,
+      netProfitUSD: calc.netProfitUSD,
+      totalCostUSD: calc.totalCostUSD,
+      verdict: channel.id === 'amazon-fbm'
+        ? '需另计买家运费与退货成本'
+        : (calc.netMargin > 0.30 ? '优秀' : (calc.netMargin > 0.25 ? '可做' : (calc.netMargin > 0.15 ? '只能跑体量' : (calc.netMargin > 0 ? '几乎不赚' : '亏损')))),
+      caveat: channel.id === 'amazon-fbm'
+        ? '自发货：买家运费与退货处理需自行承担（若包邮请把运费加回成本），本行净利率未含，实际会低于此值'
+        : (channel.id === 'tiktok-shop' ? '跨境运费为估算值，达人佣金/退货率按经验默认' : ''),
+    });
+  }
+  return rows;
 }
 
 function checkOf(candidate, key) {
@@ -74,12 +121,13 @@ function firstBatch(candidate, profile, targetMonthlyUnits, fx = 7.1) {
   const units = profile.firstBatchUnits;
   const variantCount = Math.max(1, Math.min(profile.maxVariants, Number(checkOf(candidate, 'variants')?.value) || 1));
   const goodsCNY = candidate.inputs.purchaseCNY * units;
-  const freightCNY = (n(p.firstMileUSD) || 0) * fx * units;
+  // 履约成本按件计，必须进首批资金：TK 渠道头程并入了履约，只算 firstMile 会低估。
+  const freightCNY = ((n(p.firstMileUSD) || 0) + (n(p.fbaFeeUSD) || 0)) * fx * units;
   const capitalCNY = goodsCNY + freightCNY;
   const monthlyProfitCNY = (n(p.netProfitUSD) || 0) * fx * targetMonthlyUnits;
   const paybackMonths = monthlyProfitCNY > 0 ? capitalCNY / monthlyProfitCNY : null;
   const sampleUnits = variantCount * 50;
-  const sampleCapitalCNY = (candidate.inputs.purchaseCNY + (n(p.firstMileUSD) || 0) * fx) * sampleUnits;
+  const sampleCapitalCNY = (candidate.inputs.purchaseCNY + ((n(p.firstMileUSD) || 0) + (n(p.fbaFeeUSD) || 0)) * fx) * sampleUnits;
   return {
     available: true,
     units,

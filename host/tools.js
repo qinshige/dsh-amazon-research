@@ -334,6 +334,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
         '1688 采价 + 全成本落地测算：按子市场关键词搜索 1688 货源、逐条进详情页验证采购价 / 阶梯价 / 起批量 / 件重，再按「采购 + 头程 + FBA + 佣金 + 广告 + 退货 + 其它」测算单件净利与净利率。',
         '⚠️ 会打开 1688 页面并消耗网页端查询次数：每个关键词 1 次搜索页，每个进详情页验证的 offer 再加 1 次页面请求。调用前请先向用户说明会占用网页端查询次数。',
         '利润口径 = 净利率（扣完佣金 / 广告 / 退货 / 其它），与上游五维的「毛利率」口径（只扣采购成本）不可直接比较；红线：净利率 > 25% 才考虑，体量小（100-200 单）需 > 30%，物流占售价 10%-15%、>20% 提示放弃。',
+        '⚠️ 当前只支持 Amazon FBA 成本模型（佣金 15% + FBA 配送费按件重档）；TikTok Shop 请用 research_product_select 的 channel=tiktok-shop（佣金 6%、无 FBA 费、跨境直发物流）。',
         '调用时机：用户要做「全成本落地测算 / 净利率口径的利润维度评分」，或问「这个品到底赚不赚钱」时。',
         '输出 { ok, offers, profit, warnings, fetchedAt }；采购价只取 1688 页面真实文本（未进详情页的只给搜索页卡片价并标注），抓不到就写「未取到」，不做估算填充。',
       ].join('\n'),
@@ -525,7 +526,8 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
       description: [
         '选品全流程（四途径 → 九策略 → 十维 → 差异化）：action=plan 出路线图，action=screen 对候选 ASIN 做十维体检、一票否决、分档与差异化建议。',
         'action=plan：按站点/类目生成站内 7 个榜单入口（Best Sellers / New Releases / Movers / Most Wished For / Gift Ideas / Deals / 热搜词）、站外与软件渠道、九种选品策略的适用性与步骤、十维采集清单。免费，不取数。',
-        'action=screen：接收采集表（rows 数组或 csv 文本，中英文列名均可），逐品输出 达标/警戒/不达标/未知、一票否决、一档/二档/三档/待复核/淘汰、全成本净利率、敏感性与差异化方向；报告开头是决策单（做/小批量测/先补数/不做、致命项、安全边际、首批资金与回本、可攻击面），新手画像额外输出教练层。落盘 report.md / selection.csv / provenance.json（原始输入 + SHA-256 输入指纹 + 逐项判定），报告第八章给出每个 KPI 的输入列与来源。免费，不消耗数据服务额度。',
+        'action=screen：接收采集表（rows 数组或 csv 文本，中英文列名均可），逐品输出 达标/警戒/不达标/未知、一票否决、一档/二档/三档/待复核/淘汰、全成本净利率、敏感性与差异化方向；报告开头是决策单（做/小批量测/先补数/不做、致命项、安全边际、首批资金与回本、可攻击面）+ 渠道对照（同一品在 amazon-fba / amazon-fbm / tiktok-shop 的净利率），新手画像额外输出教练层。落盘 report.md / selection.csv / provenance.json（原始输入 + SHA-256 输入指纹 + 逐项判定），报告第八章给出每个 KPI 的输入列与来源。免费，不消耗数据服务额度。',
+        '⚠️ 渠道决定生死：售价 $5.49 的小件在 Amazon FBA 因 $3.22 配送费必亏，在 TikTok Shop（佣金 6%、无 FBA 费）可赚。做 TK / 独立站必须传 channel=tiktok-shop。',
         '纪律：缺失字段记「未知」不计入命中率；采购价必须来自 1688 真实报价；榜单数字必须真实抓取，禁止用记忆补。',
       ].join('\n'),
       parameters: {
@@ -550,6 +552,11 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           fx: { type: 'number', description: '汇率（1 USD = ? CNY），默认 7.1' },
           title: { type: 'string', description: '报告标题，默认用 category 或「选品体检」' },
           source: { type: 'string', description: '候选来源标注，如「BS 榜 / 竞品店铺 / 手动采集」' },
+          channel: {
+            type: 'string',
+            enum: ['amazon-fba', 'amazon-fbm', 'tiktok-shop'],
+            description: '销售渠道，决定利润模型：amazon-fba（FBA 配送费按件重档）｜amazon-fbm（自发货，无平台配送费）｜tiktok-shop（佣金 6%、无 FBA 费、跨境直发物流）。默认 amazon-fba。同一品换渠道结论可能相反，报告会给出渠道对照',
+          },
           profile: {
             type: 'string',
             enum: ['beginner', 'operator', 'factory'],
@@ -604,6 +611,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
             source: asString(args?.source) || 'research_product_select',
             plan,
             profile: asString(args?.profile) || 'beginner',
+            channel: asString(args?.channel) || 'amazon-fba',
             targetMonthlyUnits: typeof args?.targetMonthlyUnits === 'number' && Number.isFinite(args.targetMonthlyUnits) ? args.targetMonthlyUnits : null,
           });
           return { ...result, action };

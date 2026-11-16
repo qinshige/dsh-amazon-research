@@ -189,19 +189,23 @@ export function normalizeCandidate(row = {}) {
  * 全成本净利测算：优先按行内参数（采购价/件重/配送费/广告/退货/佣金）算；
  * 缺采购价时退回调用方给定的「净利率」字段；都没有则返回 null（未知）。
  */
-export function computeMargin(c, { fx = 7.1 } = {}) {
+export function computeMargin(c, { fx = 7.1, channel = 'amazon-fba' } = {}) {
   if (c.purchaseCNY === null) {
     if (c.netMarginInput !== null) {
       return { netMargin: c.netMarginInput, source: '行内净利率字段（未接入采购价，无法拆解）', profit: null };
     }
     return null;
   }
+  // 平台佣金是**平台属性**：Amazon 用采集表里的类目佣金（服饰 17% / 家居 15% 等），
+  // 非 Amazon 渠道一律用渠道模型的佣金率，不能拿 Amazon 的佣金去算 TK Shop。
+  const referralRate = channel.startsWith('amazon') ? (c.commissionPct ?? undefined) : undefined;
   const calc = landedCost({
+    channel,
     priceCNY: c.purchaseCNY,
     weightG: c.weightG,
     priceUSD: c.priceUSD,
     fbaFeeUSD: c.fbaFeeUSD ?? undefined,
-    referralRate: c.commissionPct ?? undefined,
+    referralRate,
     adRate: c.adPct ?? undefined,
     returnRate: c.returnPct ?? undefined,
     otherUSD: c.otherUSD ?? undefined,
@@ -251,12 +255,12 @@ function statusFrom(condition, okStatus = OK, badStatus = BAD) {
  * 单个候选品的十维体检。
  * @returns {{asin:string, tier:string, hitRate:number, judgedCount:number, checks:Array, vetoes:Array, unknown:Array, margin:number|null, profit:object|null}}
  */
-export function evaluateCandidate(row, { fx = 7.1, smallVolumeUnits = 200 } = {}) {
+export function evaluateCandidate(row, { fx = 7.1, smallVolumeUnits = 200, channel = 'amazon-fba' } = {}) {
   const c = normalizeCandidate(row);
   const checks = [];
   const vetoes = [];
   const unknown = [];
-  const marginInfo = computeMargin(c, { fx });
+  const marginInfo = computeMargin(c, { fx, channel });
   const margin = marginInfo ? marginInfo.netMargin : null;
   const smallVolume = c.monthlySales !== null && c.monthlySales > 0 && c.monthlySales <= smallVolumeUnits;
 
@@ -492,6 +496,7 @@ export function evaluateCandidate(row, { fx = 7.1, smallVolumeUnits = 200 } = {}
 export function evaluateBatch(rows, opts = {}) {
   const list = Array.isArray(rows) ? rows : [];
   const results = list.map((row) => evaluateCandidate(row, opts));
+  const channelId = opts.channel || 'amazon-fba';
   const order = { '一档': 0, '二档': 1, '三档': 2, '待复核': 3, '淘汰': 4 };
   results.sort((a, b) => {
     const diff = (order[a.tier] ?? 9) - (order[b.tier] ?? 9);
@@ -514,6 +519,7 @@ export function evaluateBatch(rows, opts = {}) {
     total: results.length,
     results,
     summary: {
+      channel: channelId,
       tiers,
       avgMargin: margins.length ? margins.reduce((sum, value) => sum + value, 0) / margins.length : null,
       commonGaps: [...gaps.values()].sort((a, b) => (b.fail * 2 + b.warn) - (a.fail * 2 + a.warn)).slice(0, 8),
