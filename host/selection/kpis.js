@@ -59,6 +59,9 @@ const ALIASES = {
   widthCm: ['宽cm', 'widthCm'],
   heightCm: ['高cm', 'heightCm'],
   purchaseCNY: ['采购价CNY', 'purchaseCNY', '采购价', '估算采购成本CNY'],
+  // 包装对齐：Amazon 一个可售单位 = 几个 1688 单件
+  packUnits: ['包装对齐', 'packUnits', '每个可售单位件数', '件数'],
+  unitPriceCNY: ['单件采购价CNY', 'unitPriceCNY', '单件价CNY'],
   offerUrl: ['1688链接', 'offerUrl'],
   adPct: ['广告占比', 'adPct', '广告占比%'],
   returnPct: ['退货率', 'returnPct'],
@@ -159,6 +162,15 @@ export function normalizeCandidate(row = {}) {
     weightG,
     dims,
     purchaseCNY: num(rawOf(row, 'purchaseCNY')),
+    // 「包装对齐」可能是文本（如「20 个装」），先按数字取，再从文本里提取件数
+    packUnits: num(rawOf(row, 'packUnits')) ?? (() => {
+      const text = str(rawOf(row, 'packUnits'));
+      if (!text) return null;
+      const digits = text.split('').filter((ch) => ch >= '0' && ch <= '9').join('');
+      const n = digits ? Number(digits) : null;
+      return n !== null && n > 0 ? n : null;
+    })(),
+    unitPriceCNY: num(rawOf(row, 'unitPriceCNY')),
     offerUrl: str(rawOf(row, 'offerUrl')),
     adPct: ratio(rawOf(row, 'adPct')),
     returnPct: ratio(rawOf(row, 'returnPct')),
@@ -190,7 +202,18 @@ export function normalizeCandidate(row = {}) {
  * 缺采购价时退回调用方给定的「净利率」字段；都没有则返回 null（未知）。
  */
 export function computeMargin(c, { fx = 7.1, channel = 'amazon-fba' } = {}) {
-  if (c.purchaseCNY === null) {
+  // 包装对齐：采集表若给的是「1688 单件价」，必须乘以 Amazon 一个可售单位的件数，
+  // 否则采购成本会被低估 10~100 倍（实测：20 个装手套夹，¥1.70/个 当成整包价 → 少算 20 倍）。
+  // 优先级：显式可售单位成本（采购价CNY）> 单件价 × 件数。
+  const packUnits = c.packUnits && c.packUnits > 0 ? c.packUnits : null;
+  const unitPrice = c.unitPriceCNY;
+  let purchaseCNY = c.purchaseCNY;
+  let purchaseSource = '采集表采购价CNY（可售单位成本）';
+  if (purchaseCNY === null && unitPrice !== null && packUnits !== null) {
+    purchaseCNY = Number((unitPrice * packUnits).toFixed(4));
+    purchaseSource = '单件价 ¥' + unitPrice.toFixed(2) + ' × ' + packUnits + ' 件/可售单位';
+  }
+  if (purchaseCNY === null) {
     if (c.netMarginInput !== null) {
       return { netMargin: c.netMarginInput, source: '行内净利率字段（未接入采购价，无法拆解）', profit: null };
     }
@@ -201,7 +224,7 @@ export function computeMargin(c, { fx = 7.1, channel = 'amazon-fba' } = {}) {
   const referralRate = channel.startsWith('amazon') ? (c.commissionPct ?? undefined) : undefined;
   const calc = landedCost({
     channel,
-    priceCNY: c.purchaseCNY,
+    priceCNY: purchaseCNY,
     weightG: c.weightG,
     priceUSD: c.priceUSD,
     fbaFeeUSD: c.fbaFeeUSD ?? undefined,
@@ -213,7 +236,7 @@ export function computeMargin(c, { fx = 7.1, channel = 'amazon-fba' } = {}) {
   });
   if (!calc) return null;
   let { firstMileUSD, totalCostUSD, netProfitUSD, netMargin } = calc;
-  let source = '采购价 + 头程 + FBA + 佣金 + 广告 + 退货 + 其它（全成本）';
+  let source = purchaseSource + ' + 头程 + FBA + 佣金 + 广告 + 退货 + 其它（全成本）';
   if (c.firstMileUSD !== null) {
     totalCostUSD = calc.totalCostUSD - calc.firstMileUSD + c.firstMileUSD;
     netProfitUSD = calc.priceUSD - totalCostUSD;

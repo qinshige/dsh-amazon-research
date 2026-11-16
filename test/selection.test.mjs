@@ -215,6 +215,17 @@ test('体检落盘：report.md 含四途径、十维、否决、差异化与追�
   }
 });
 
+test('包装对齐：单件价 × 件数 = 可售单位成本', () => {
+  // 实测教训：20 个装手套夹，1688 单件 ¥1.70，当成整包价会把成本低估 20 倍。
+  const single = evaluateCandidate({ ...baseRow, 售价USD: 17.99, 采购价CNY: null, 单件采购价CNY: 1.7, 包装对齐: 20, 重量g: 290 });
+  const direct = evaluateCandidate({ ...baseRow, 售价USD: 17.99, 采购价CNY: 34, 重量g: 290 });
+  assert.ok(single.margin !== null);
+  assert.equal(Number(single.margin.toFixed(6)), Number(direct.margin.toFixed(6)), '两条路径应得到同一净利率');
+  assert.match(single.marginSource, /× 20 件/);
+  const wrong = evaluateCandidate({ ...baseRow, 售价USD: 17.99, 采购价CNY: 1.7, 重量g: 290 });
+  assert.ok(wrong.margin > single.margin, '未对齐时净利率会被高估');
+});
+
 test('实时会话：事件落盘 + 快照可读', async () => {
   const { beginSession, endSession, push, readLiveSnapshot } = await import('../host/live.js');
   const { mkdtemp, rm } = await import('node:fs/promises');
