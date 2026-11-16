@@ -249,6 +249,7 @@ export function computeMargin(c, { fx = 7.1, channel = 'amazon-fba' } = {}) {
     source,
     profit: {
       priceUSD: calc.priceUSD,
+      purchaseCNY,
       purchaseUSD: calc.purchaseUSD,
       firstMileUSD,
       fbaFeeUSD: calc.fbaFeeUSD,
@@ -497,7 +498,11 @@ export function evaluateCandidate(row, { fx = 7.1, smallVolumeUnits = 200, chann
     },
     inputs: {
       priceUSD: c.priceUSD,
-      purchaseCNY: c.purchaseCNY,
+      // 可售单位采购成本（已按包装对齐折算）+ 折算依据，报告里要能核
+      purchaseCNY: marginInfo && marginInfo.profit ? marginInfo.profit.purchaseCNY : c.purchaseCNY,
+      unitPriceCNY: c.unitPriceCNY,
+      packUnits: c.packUnits,
+      packAligned: Boolean(c.unitPriceCNY !== null && c.packUnits),
       weightG: c.weightG,
       fbaFeeUSD: c.fbaFeeUSD,
       adPct: c.adPct,

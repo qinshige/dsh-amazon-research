@@ -402,10 +402,13 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
   if (traceRows.length === 0) {
     push('（没有可测算的利润数据：缺采购价或售价，净利率记为「未知」。）', '');
   } else {
-    push(...table(['ASIN', '售价', '采购¥', '件重g', 'FBA$', '广告%', '退货%', '佣金%', '头程$', '其它$', '净利率'], traceRows.map((item) => [
+    push(...table(['ASIN', '售价', '采购¥（可售单位）', '包装对齐', '件重g', 'FBA$', '广告%', '退货%', '佣金%', '头程$', '其它$', '净利率'], traceRows.map((item) => [
       item.asin || '—',
       money(item.inputs?.priceUSD ?? item.priceUSD),
-      item.inputs?.purchaseCNY ?? '—',
+      item.inputs?.purchaseCNY === null || item.inputs?.purchaseCNY === undefined ? '—' : '¥' + Number(item.inputs.purchaseCNY).toFixed(2),
+      item.inputs?.packAligned
+        ? '¥' + Number(item.inputs.unitPriceCNY).toFixed(2) + '/个 × ' + item.inputs.packUnits + ' 件'
+        : (item.inputs?.purchaseCNY ? '直接给可售单位成本' : '—'),
       item.inputs?.weightG === null || item.inputs?.weightG === undefined ? '—' : Math.round(item.inputs.weightG),
       money(item.profit.fbaFeeUSD) + (item.profit.fbaEstimated ? '（估）' : ''),
       pct(item.inputs?.adPct),
@@ -417,6 +420,7 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
     ])));
     push('');
     push('> 公式：净利率 =（售价 − 采购 − 头程 − FBA − 佣金 − 广告 − 退货 − 其它）÷ 售价。采购价按汇率折算；FBA 未填时按件重档位估算（标「估」）；广告 / 退货 / 佣金未填时用默认 10% / 5% / 15%。', '');
+    push('> **包装对齐**：1688 入口价常常是**单件价**，而 Amazon 卖的是**一个可售单位**（如 20 个装）。「包装对齐」列给出折算依据（单件价 × 件数 = 可售单位成本）；未对齐会把采购成本低估 10~100 倍。', '');
   }
   push('### 8.5 待复核项', '');
   if (summary.needsReview.length === 0 && summary.commonGaps.length === 0) {
