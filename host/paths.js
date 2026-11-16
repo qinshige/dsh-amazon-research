@@ -29,7 +29,7 @@ export function isHostInternalPath(input) {
 
 /** 读取 dataDir/config.json（不存在时返回默认值） */
 export async function readConfig(dataDir) {
-  const defaults = { marketplace: 'US', defaultLimit: 50, outputRoot: '', provider: 'sellersprite', unitCost: null, cacheTtlHours: 24 };
+  const defaults = { platform: 'amazon', marketplace: 'US', defaultLimit: 50, outputRoot: '', provider: 'sellersprite', unitCost: null, cacheTtlHours: 24 };
   try {
     const raw = await readFile(join(dataDir, 'config.json'), 'utf8');
     const parsed = JSON.parse(raw);

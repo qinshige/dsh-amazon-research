@@ -84,7 +84,7 @@ renderDashboardHtml({ market, score, generatedAt }) -> string   // 内联 CSS/�
 
 ## 5. 工具名（模型可见，snake_case）
 
-`research_provider_status`（免费）、`research_category_select`（付费）、`research_runs`（免费）、`mcp_call`（付费逃生口）。
+`research_provider_status`（免费）、`research_category_select`（付费）、`research_product_select`（免费：四途径路线 + 九策略 + 十维体检 + 差异化）、`research_unit_cost`（1688 网页查询）、`research_runs`（免费）、`mcp_call`（付费逃生口）。
 
 ## 6. 文件归属（不要越界写）
 

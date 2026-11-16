@@ -1,7 +1,9 @@
 import { McpHttpClient } from './mcp/client.js';
 import { sellerspriteWebProvider } from './providers/sellersprite-web.js';
+import { trendyolWebProvider } from './providers/trendyol-web.js';
+import { platformsOfProvider, providersForPlatform } from './platforms/index.js';
 
-/** 数据源定义：端点、鉴权形态、能力矩阵 */
+/** 数据源定义：端点、鉴权形态、能力矩阵、支持平台 */
 export const PROVIDER_DEFS = {
   sellersprite: {
     id: 'sellersprite',
@@ -12,6 +14,7 @@ export const PROVIDER_DEFS = {
     keyRef: 'SELLERSPRITE_SECRET_KEY',
     capabilities: ['market', 'product', 'keyword', 'review', 'traffic', 'aba', 'trademark'],
     docs: 'https://www.sellersprite.com',
+    platforms: ['amazon'],
   },
   sorftime: {
     id: 'sorftime',
@@ -21,11 +24,21 @@ export const PROVIDER_DEFS = {
     queryParam: 'key',
     keyRef: 'SORFTIME_MCP_KEY',
     capabilities: ['category', 'product', 'keyword', 'review', 'trend', 'sourcing1688'],
+    platforms: ['amazon'],
   },
 };
 
 /** 网页登录态 provider（不需要 key，但需要用户在 Chrome 里已登录） */
-export const WEB_PROVIDER_IDS = ['sellersprite-web'];
+export const WEB_PROVIDER_IDS = ['sellersprite-web', 'trendyol-web'];
+
+/** 全部 provider（含网页链路） */
+function allProviders() {
+  return [
+    ...Object.values(PROVIDER_DEFS),
+    sellerspriteWebProvider,
+    trendyolWebProvider,
+  ];
+}
 
 export class Providers {
   constructor({ secrets, settings, fetchImpl } = {}) {
@@ -36,10 +49,18 @@ export class Providers {
   }
 
   list() {
-    return [
-      ...Object.values(PROVIDER_DEFS).map((d) => ({ id: d.id, label: d.label, capabilities: d.capabilities })),
-      { id: sellerspriteWebProvider.id, label: sellerspriteWebProvider.label, capabilities: sellerspriteWebProvider.capabilities },
-    ];
+    return allProviders().map((d) => ({
+      id: d.id,
+      label: d.label,
+      capabilities: d.capabilities,
+      platforms: Array.isArray(d.platforms) && d.platforms.length ? [...d.platforms] : platformsOfProvider(d.id),
+    }));
+  }
+
+  /** 按平台过滤可用 provider */
+  listForPlatform(platformId) {
+    const allowed = providersForPlatform(platformId);
+    return this.list().filter((p) => allowed.includes(p.id));
   }
 
   async _client(id) {
@@ -68,22 +89,15 @@ export class Providers {
 
   /** 数据源健康状态（未配置 key 时不发请求） */
   async status(id) {
-    if (id === sellerspriteWebProvider.id) {
-      // 网页链路的健康检查要驱动浏览器，必须有超时兜底，
-      // 否则一次卡住的 AppleScript 调用会让面板整体请求超时。
+    const web = [sellerspriteWebProvider, trendyolWebProvider].find((p) => p.id === id);
+    if (web) {
+      let timer;
       const health = await Promise.race([
-        sellerspriteWebProvider.health().catch((error) => ({ ok: false, error: String(error?.message ?? error) })),
-        new Promise((resolve) => setTimeout(() => resolve({ ok: false, error: '网页登录态探测超时' }), 2000)),
-      ]);
-      return {
-        id,
-        label: sellerspriteWebProvider.label,
-        configured: true,
-        ok: health.ok,
-        capabilities: sellerspriteWebProvider.capabilities,
-        lastError: health.ok ? null : health.error,
-        note: health.note || null,
-      };
+        web.health().catch((error) => ({ ok: false, error: String(error?.message ?? error) })),
+        new Promise((resolve) => { timer = setTimeout(() => resolve({ ok: false, error: '浏览器探测超时，请打开 Chrome 后重试' }), 2000); }),
+      ]).finally(() => clearTimeout(timer));
+      return { id, label: web.label, platforms: platformsOfProvider(id), configured: true, requiresKey: false,
+        ok: health.ok, capabilities: web.capabilities, lastError: health.ok ? null : health.error, note: health.note || null };
     }
     const def = PROVIDER_DEFS[id];
     if (!def) throw new Error('未知数据源: ' + id);

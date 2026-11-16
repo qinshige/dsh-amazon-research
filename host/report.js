@@ -1,3 +1,5 @@
+import { renderTrendyolReport, renderTrendyolDashboard } from './trendyol-analysis.js';
+import { renderCategorySelectionSection } from './selection/category-advice.js';
 /**
  * dsh-amazon-research · host/report.js
  * 报告渲染：中文 Markdown 品类报告、scores.json、CSV 表格、纯内联 CSS 的 HTML 面板。
@@ -604,6 +606,7 @@ function brandTableRows(view) {
 
 /** 渲染中文 Markdown 品类报告（结论先行，含五维评分表、大盘、集中度、价格带、风险与数据来源）。 */
 export function renderCategoryReport(params = {}) {
+  if (params?.market?.platform === 'trendyol') return renderTrendyolReport(params);
   const view = resolveReportMetrics(params);
   const lines = [];
   const push = (...items) => lines.push(...items);
@@ -941,8 +944,11 @@ export function renderCategoryReport(params = {}) {
       }
     }
 
-    push('> **合规提醒**：1688 的图片不要直接用（工厂自述「实拍」不可信），上架前需自查图片素材版权与外观专利；外观专利存在 5 个以上结构差异才不构成侵权，实用新型 / 发明专利另查。', '');
+    push('> **合规提醒**：1688 的图片不要直接用（工厂自述「实拍」不可信），上架前需自查图片素材版权；外观 / 实用新型 / 发明专利与商标必须逐项做专业检索，「结构差异」不是免责结论。', '');
   }
+
+  // 九、选品落地（四途径 → 九策略 → 十维 → 差异化）
+  push(...renderCategorySelectionSection(view));
 
   // 附录：Top 产品
   if (view.products.length > 0) {
@@ -1072,6 +1078,7 @@ export function toCsv(rows, columns) {
 
 /** 渲染纯 HTML + 内联 CSS 的数据面板（无 script / CDN / 外链，所有插值经 HTML 转义）。 */
 export function renderDashboardHtml(params = {}) {
+  if (params?.market?.platform === 'trendyol') return renderTrendyolDashboard(params);
   const view = resolveReportMetrics(params);
   const dimensionsHtml = view.dimensions.map((dimension) => {
     const width = Math.max(0, Math.min(100, num(dimension.normalized) ?? 0)).toFixed(1);

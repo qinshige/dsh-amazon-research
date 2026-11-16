@@ -62,14 +62,16 @@ test('apply 注册工具、系统提示与技能提供者', async () => {
     const { ctx, registered, sections, providers } = fakeCtx();
     apply(ctx, { dataDir });
     const names = registered.map((tool) => tool.name).sort();
-    assert.deepEqual(names, ['mcp_call', 'research_category_select', 'research_provider_status', 'research_runs', 'research_unit_cost']);
+    assert.deepEqual(names, ['mcp_call', 'research_category_select', 'research_product_select', 'research_provider_status', 'research_runs', 'research_unit_cost']);
     assert.equal(sections.length, 1);
     assert.equal(sections[0].name, 'dsh-amazon-research');
     assert.equal(providers.length, 1);
     const skills = await providers[0].list();
-    assert.ok(Array.isArray(skills) && skills.length >= 1);
-    assert.equal(skills[0].name, 'amazon-category-selection');
-    const loaded = await providers[0].get(skills[0]);
+    assert.ok(Array.isArray(skills) && skills.length >= 2);
+    const namesList = skills.map((skill) => skill.name);
+    assert.ok(namesList.includes('amazon-category-selection'));
+    assert.ok(namesList.includes('amazon-product-selection'));
+    const loaded = await providers[0].get(skills.find((skill) => skill.name === 'amazon-category-selection'));
     assert.match(loaded.content, /品类选品/);
     assert.equal(loaded.content.startsWith('---'), false, '应剥离 frontmatter');
   } finally {

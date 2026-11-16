@@ -35,7 +35,7 @@ test('routes.js：provider 状态探测有超时保护', async () => {
 test('providers.js：网页 provider 的 status 有超时兜底', async () => {
   const src = await read('host/providers.js');
   assert.match(src, /Promise\.race\(/, 'web provider status 必须有超时兜底');
-  assert.match(src, /网页登录态探测超时/, '必须给出超时错误文案');
+  assert.match(src, /(?:网页登录态|浏览器)探测超时/, '必须给出超时错误文案');
 });
 
 test('网页 provider 的 health() 不抓数据页（只列标签页）', async () => {

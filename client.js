@@ -93,8 +93,8 @@ window.__ModuleLoader__.load({
 
     const ZH = {
       'panel.entryLabel': '选品研究',
-      'panel.title': '亚马逊选品研究',
-      'panel.subtitle': 'Sellersprite 品类市场取数 · 五维评分 · 选品报告',
+      'panel.title': '多平台选品研究',
+      'panel.subtitle': 'Amazon / Trendyol · 平台独立口径 · 可复核报告',
       'panel.refresh': '刷新',
       'panel.refreshAria': '刷新运行记录',
       'panel.loading': '正在读取运行记录…',
@@ -121,7 +121,7 @@ window.__ModuleLoader__.load({
       'runs.site': '站点 {site}',
 
       'provider.bannerTitle': '还没有配置 Sellersprite Secret Key',
-      'provider.bannerBody': '打开「设置 → 亚马逊选品研究」，粘贴 Secret Key 并保存；保存成功后这里会显示「已配置」。',
+      'provider.bannerBody': '打开「设置 → 多平台选品研究」，粘贴 Secret Key 并保存；保存成功后这里会显示「已配置」。',
       'provider.failedTitle': 'Sellersprite 连接失败',
       'provider.failedBody': '{message}',
       'provider.failedGeneric': '宿主无法列出该数据源的工具。请确认 Secret Key 是否有效、网络是否可用；保存密钥后点「重新检测」。',
@@ -154,9 +154,9 @@ window.__ModuleLoader__.load({
       'detail.fetchedAt': '取数时间 {time}',
       'detail.unknown': '—',
 
-      'settings.label': '亚马逊选品研究',
-      'settings.title': '亚马逊选品研究',
-      'settings.subtitle': '配置 Sellersprite 数据源与运行默认值；密钥只保存在本机，保存后不回显。',
+      'settings.label': '多平台选品研究',
+      'settings.title': '多平台选品研究',
+      'settings.subtitle': '选择平台、匹配的数据源和站点；网页模式不需要密钥。密钥仅保存在本机。',
       'settings.keySection': 'Sellersprite 数据源',
       'settings.keyLabel': 'Sellersprite Secret Key',
       'settings.keyPlaceholder': '粘贴 Sellersprite Secret Key',
@@ -177,7 +177,7 @@ window.__ModuleLoader__.load({
       'settings.configuredNote': '密钥已保存在本机，页面不回显。',
       'settings.defaultsSection': '运行默认值',
       'settings.marketplaceLabel': '默认站点',
-      'settings.marketplaceDesc': '取数使用的亚马逊站点。',
+      'settings.marketplaceDesc': '当前平台支持的数据采集站点。',
       'settings.limitLabel': '默认样本上限',
       'settings.limitDesc': '单次取数的样本条数上限（10–100）；留空沿用插件默认。',
       'settings.limitInvalid': '样本上限需要是 10–100 的整数。',
@@ -203,8 +203,8 @@ window.__ModuleLoader__.load({
 
     const EN = {
       'panel.entryLabel': 'Product Research',
-      'panel.title': 'Amazon Product Research',
-      'panel.subtitle': 'Sellersprite category data · five-dimension scoring · research report',
+      'panel.title': 'Multi-platform Product Research',
+      'panel.subtitle': 'Amazon / Trendyol · platform-specific metrics · research reports',
       'panel.refresh': 'Refresh',
       'panel.refreshAria': 'Refresh run list',
       'panel.loading': 'Loading runs…',
@@ -231,7 +231,7 @@ window.__ModuleLoader__.load({
       'runs.site': 'site {site}',
 
       'provider.bannerTitle': 'Sellersprite Secret Key is not configured',
-      'provider.bannerBody': 'Open Settings → Amazon Product Research, paste the Secret Key and save; this banner disappears once it is configured.',
+      'provider.bannerBody': 'Open Settings → Multi-platform Product Research, paste the Secret Key and save; this banner disappears once it is configured.',
       'provider.failedTitle': 'Sellersprite connection failed',
       'provider.failedBody': '{message}',
       'provider.failedGeneric': 'The host cannot list tools for this provider. Check that the Secret Key is valid and the network is reachable; save the key and re-check.',
@@ -264,9 +264,9 @@ window.__ModuleLoader__.load({
       'detail.fetchedAt': 'fetched {time}',
       'detail.unknown': '—',
 
-      'settings.label': 'Amazon Product Research',
-      'settings.title': 'Amazon Product Research',
-      'settings.subtitle': 'Configure the Sellersprite provider and run defaults. The key is stored locally and never echoed back.',
+      'settings.label': 'Multi-platform Product Research',
+      'settings.title': 'Multi-platform Product Research',
+      'settings.subtitle': 'Choose platform, provider and marketplace. Web providers need no API key; credentials stay local.',
       'settings.keySection': 'Sellersprite provider',
       'settings.keyLabel': 'Sellersprite Secret Key',
       'settings.keyPlaceholder': 'Paste the Sellersprite Secret Key',
@@ -287,7 +287,7 @@ window.__ModuleLoader__.load({
       'settings.configuredNote': 'The key is stored locally and never echoed back.',
       'settings.defaultsSection': 'Run defaults',
       'settings.marketplaceLabel': 'Default marketplace',
-      'settings.marketplaceDesc': 'Amazon marketplace used for data fetching.',
+      'settings.marketplaceDesc': 'Marketplace supported by the selected platform.',
       'settings.limitLabel': 'Default sample limit',
       'settings.limitDesc': 'Max sample rows per fetch (10-100); leave empty to use the plugin default.',
       'settings.limitInvalid': 'The sample limit must be an integer between 10 and 100.',
@@ -551,12 +551,11 @@ window.__ModuleLoader__.load({
       return '';
     }
 
-    function marketplaceLabel(value) {
+    function marketplaceLabel(value, platforms = [], platform = '') {
       const code = isString(value) ? value.toUpperCase() : '';
-      for (let index = 0; index < MARKETPLACES.length; index += 1) {
-        if (MARKETPLACES[index].value === code) return MARKETPLACES[index].label + ' (' + MARKETPLACES[index].value + ')';
-      }
-      return code === '' ? '—' : code;
+      const sites = platforms.filter(p => !platform || p.id === platform).flatMap(p => p.sites || []).concat(MARKETPLACES);
+      const site = sites.find(s => s.value === code);
+      return site ? site.label + ' (' + code + ')' : (code || '—');
     }
 
     function findProvider(overview) {
@@ -565,8 +564,7 @@ window.__ModuleLoader__.load({
       for (let index = 0; index < providers.length; index += 1) {
         const provider = providers[index];
         if (!isObject(provider)) continue;
-        if (provider.id === 'sellersprite') return provider;
-        if (isString(provider.label) && /sellersprite/i.test(provider.label) && !/网页|web/i.test(provider.label)) return provider;
+        if (provider.id === (overview.config?.provider || 'sellersprite')) return provider;
       }
       return null;
     }
@@ -1391,7 +1389,8 @@ window.__ModuleLoader__.load({
       const grade = isString(run.grade) ? run.grade : '';
       const title = pickString(run.title, run.label, runId, '—');
       const createdAt = run.createdAt === undefined || run.createdAt === null ? run.fetchedAt : run.createdAt;
-      const site = pickString(run.site, run.marketplace);
+      const siteCode = pickString(run.site, run.marketplace);
+      const site = siteCode ? marketplaceLabel(siteCode, props.platforms || [], run.platform || 'amazon') : '';
       const disabled = runId === '';
       return h(
         'li',
@@ -1438,7 +1437,7 @@ window.__ModuleLoader__.load({
               'span',
               { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11, lineHeight: 1.6, color: T.labelTertiary } },
               h('span', null, t('runs.createdAt', { time: formatTime(createdAt) })),
-              site === '' ? null : h('span', null, t('runs.site', { site: site }))
+              site === '' ? null : h('span', null, (run.platform === 'trendyol' ? 'Trendyol · ' : 'Amazon · ') + t('runs.site', { site: site }))
             )
           ),
           total === null
@@ -1470,6 +1469,7 @@ window.__ModuleLoader__.load({
           : h('ul', { style: S.listReset }, ...runs.map((run, index) => h(RunRow, {
               key: runRowKey(run, index),
               run: run,
+              platforms: props.platforms,
               onOpen: props.onOpen
             })))
       );
@@ -1621,6 +1621,12 @@ window.__ModuleLoader__.load({
       const provider = isObject(props.provider) ? props.provider : null;
       const web = isObject(props.webProvider) ? props.webProvider : null;
       if (provider === null) return null;
+      if (provider.id?.endsWith('-web')) return h(Card, null,
+        h('strong', null, provider.label + ' · 无需 API Key'),
+        h('p', { style: S.muted }, provider.id === 'trendyol-web'
+          ? '请在 Chrome 打开 Trendyol 并选择 Türkiye。公开页面采集会占用网页请求；遇验证码/限流停止。轻量状态仅检查标签页，不代表已验证国家或页面可抓取。'
+          : '请在 Chrome 登录卖家精灵。网页查询次数与 MCP 额度分开计算。'),
+        provider.lastError ? h('p', { style: S.muted }, provider.lastError) : null);
       const failed = provider.configured === true && provider.ok === false;
       const webUsable = web !== null && web.ok === true;
       if (failed === false && provider.configured === true) {
@@ -1707,7 +1713,7 @@ window.__ModuleLoader__.load({
           }
         },
         h(Badge, { tone: providerTone, dot: true }, providerName + ' · ' + providerLabel),
-        marketplace === '' ? null : h(Badge, null, t('status.marketplace') + '：' + marketplaceLabel(marketplace)),
+        marketplace === '' ? null : h(Badge, null, (overview.defaultPlatform === 'trendyol' ? 'Trendyol · ' : 'Amazon · ') + t('status.marketplace') + '：' + marketplaceLabel(marketplace, overview.platforms || [], overview.defaultPlatform || overview.config?.platform || 'amazon')),
         outputRoot === ''
           ? null
           : h('span', {
@@ -1782,7 +1788,8 @@ window.__ModuleLoader__.load({
       const artifacts = Array.isArray(detail.artifacts) ? detail.artifacts : [];
       const reportMd = isString(detail.reportMd) ? detail.reportMd : isString(detail.report) ? detail.report : '';
       const title = pickString(manifest.title, detail.title, runId);
-      const site = pickString(manifest.site, detail.site);
+      const siteCode = pickString(manifest.site, detail.site);
+      const site = siteCode ? marketplaceLabel(siteCode, props.platforms || [], manifest.platform || detail.platform || 'amazon') : '';
       const providerName = pickString(manifest.provider, detail.provider);
       const createdAt = manifest.createdAt === undefined || manifest.createdAt === null ? detail.createdAt : manifest.createdAt;
       const fetchedAt = manifest.fetchedAt === undefined || manifest.fetchedAt === null ? detail.fetchedAt : manifest.fetchedAt;
@@ -1834,6 +1841,8 @@ window.__ModuleLoader__.load({
       useLocaleTick();
       const [overview, setOverview] = React.useState({ phase: 'loading', data: null, error: null });
       const [selected, setSelected] = React.useState(null);
+      const [platformFilter, setPlatformFilter] = React.useState('all');
+      const [switching, setSwitching] = React.useState(false);
       const [revision, setRevision] = React.useState(0);
 
       React.useEffect(() => {
@@ -1906,6 +1915,7 @@ window.__ModuleLoader__.load({
         });
       } else if (selected !== null) {
         content = h(RunDetail, {
+          platforms: data.platforms || [],
           runId: selected,
           onBack: () => setSelected(null)
         });
@@ -1922,9 +1932,15 @@ window.__ModuleLoader__.load({
                 onRetry: refresh,
                 retryLabel: t('panel.retry')
               }),
-          h(ProviderNotice, { provider: provider, webProvider: findWebProvider(overview), onRefresh: refresh }),
+          h(ProviderNotice, { provider: provider, webProvider: findWebProvider(data), onRefresh: refresh }),
+          h(Field, { label: '历史平台筛选', controlId: 'research-history-platform' }, h(Select, {
+            id: 'research-history-platform', value: platformFilter,
+            options: [{ value: 'all', label: '全部平台' }, ...(data.platforms || []).map((p) => ({ value: p.id, label: p.label }))],
+            onChange: (event) => setPlatformFilter(event.target.value)
+          })),
           h(RunList, {
-            runs: runs,
+            platforms: data.platforms || [],
+            runs: runs.filter((run) => platformFilter === 'all' || (run.platform || 'amazon') === platformFilter),
             onOpen: (runId) => {
               if (isString(runId) && runId !== '') setSelected(runId);
             }
@@ -1936,6 +1952,11 @@ window.__ModuleLoader__.load({
         'div',
         { style: S.panel, 'data-amz-root': 'panel', 'data-plugin': PLUGIN },
         header,
+        h(Card, null, h(Field, { label: '默认研究平台（历史记录保留）', controlId: 'research-panel-platform' }, h(Select, {
+          id: 'research-panel-platform', value: data.config?.platform || 'amazon', disabled: switching || overview.phase !== 'ready',
+          options: (data.platforms || [{ id: 'amazon', label: 'Amazon' }]).map((p) => ({ value: p.id, label: p.label })),
+          onChange: async (event) => { setSwitching(true); try { await postJson('settings', { platform: event.target.value }); refresh(); } catch (error) { setOverview((previous) => ({ ...previous, phase: 'error', error })); } finally { setSwitching(false); } }
+        }))),
         h(StatusBar, { overview: data, provider: provider }),
         h('div', { style: S.scroll }, content)
       );
@@ -1947,6 +1968,10 @@ window.__ModuleLoader__.load({
       useLocaleTick();
       const [state, setState] = React.useState({
         phase: 'loading',
+        platform: 'amazon',
+        provider: 'sellersprite',
+        platforms: [],
+        providers: [],
         marketplace: 'US',
         defaultLimit: '',
         outputRoot: '',
@@ -1975,11 +2000,15 @@ window.__ModuleLoader__.load({
           if (alive === false) return;
           // 默认值来自 GET /overview 的 config 段（POST /settings 只写不读）。
           const config = isObject(overview) && isObject(overview.config) ? overview.config : {};
-          const provider = findProvider(overview);
+          const provider = findProvider({ ...overview, config: { provider: 'sellersprite' } });
           const configured = provider !== null && provider.configured === true;
           setState((previous) => ({
             ...previous,
             phase: 'ready',
+            platform: config.platform || 'amazon',
+            provider: config.provider || 'sellersprite',
+            platforms: Array.isArray(overview?.platforms) ? overview.platforms : [],
+            providers: Array.isArray(overview?.providers) ? overview.providers : [],
             marketplace: pickString(config.marketplace, isObject(overview) ? overview.defaultMarketplace : '') || 'US',
             defaultLimit: pickLimit(config.defaultLimit),
             outputRoot: pickString(config.outputRoot, isObject(overview) ? overview.outputRoot : ''),
@@ -2049,6 +2078,8 @@ window.__ModuleLoader__.load({
       async function saveDefaults() {
         const rawLimit = state.defaultLimit === undefined || state.defaultLimit === null ? '' : String(state.defaultLimit).trim();
         const body = {
+          platform: state.platform,
+          provider: state.provider,
           marketplace: state.marketplace,
           outputRoot: state.outputRoot === undefined || state.outputRoot === null ? '' : String(state.outputRoot).trim()
         };
@@ -2082,6 +2113,12 @@ window.__ModuleLoader__.load({
       }
 
       const busy = state.busy !== '';
+      const platform = state.platforms.find((p) => p.id === state.platform);
+      const platformOptions = state.platforms.length ? state.platforms.map((p) => ({ value: p.id, label: p.label })) : [{ value: 'amazon', label: 'Amazon（重启宿主后可切换平台）' }];
+      const providerOptions = state.providers.filter((p) => p.id !== 'sorftime' && (!platform || platform.providers.includes(p.id))).map((p) => ({ value: p.id, label: p.label }));
+      const sites = platform?.sites || MARKETPLACES;
+      const selectedSite = sites.find(s => s.value === state.marketplace);
+      const siteDescription = state.platform === 'trendyol' ? ('官网启用国家（中文）；当前已接通土耳其、沙特阿拉伯。' + (selectedSite?.captureSupported === false ? '当前所选国家尚未接通抓取，运行会明确拒绝，不会改抓土耳其。' : '当前币种：' + (selectedSite?.currency || '—'))) : t('settings.marketplaceDesc');
       const configuredTone = state.providerFailed ? T.error : state.configured ? T.success : T.warn;
       const configuredLabel = state.providerFailed
         ? t('status.failed')
@@ -2162,14 +2199,22 @@ window.__ModuleLoader__.load({
         Card,
         null,
         h(SectionHead, { title: t('settings.defaultsSection'), icon: h(IconSliders, { size: 14 }) }),
+        h(Field, { label: '平台', controlId: 'research-platform' }, h(Select, {
+          id: 'research-platform', value: state.platform, options: platformOptions, disabled: busy,
+          onChange: (event) => { const p = state.platforms.find((p) => p.id === event.target.value); if (p) patch({ platform: p.id, provider: p.providers[0], marketplace: p.defaultSite || p.sites[0].value, defaultsMessage: null }); }
+        })),
+        h(Field, { label: '数据源', controlId: 'research-provider' }, h(Select, {
+          id: 'research-provider', value: state.provider, options: providerOptions, disabled: busy,
+          onChange: (event) => patch({ provider: event.target.value, defaultsMessage: null })
+        })),
         h(
           Field,
-          { label: t('settings.marketplaceLabel'), description: t('settings.marketplaceDesc'), controlId: 'amz-marketplace' },
+          { label: t('settings.marketplaceLabel'), description: siteDescription, controlId: 'amz-marketplace' },
           h(Select, {
             id: 'amz-marketplace',
             value: state.marketplace,
             disabled: busy,
-            options: MARKETPLACES,
+            options: sites.map(s => ({ ...s, label: s.label + (s.captureSupported === false ? '（抓取待接通）' : '') })),
             onChange: (event) => patch({ marketplace: event.target.value, defaultsMessage: null })
           })
         ),
@@ -2248,8 +2293,10 @@ window.__ModuleLoader__.load({
                 }, t('settings.reload'))
               )
             ),
-        keyCard,
-        defaultsCard
+        defaultsCard,
+        state.platform === 'amazon' && state.provider === 'sellersprite' ? keyCard : h(Card, null,
+          h('strong', null, '网页数据源 · 无需密钥'),
+          h('p', { style: S.muted }, state.platform === 'trendyol' ? '土耳其：Chrome 打开 www.trendyol.com（TRY）；沙特阿拉伯：打开 www.trendyol.sa/en（SAR）。抓取前核验国家和币种；沙特用评价数（含仅评分）代理，不冒充文字评论、月销量、销额或净利润。' : 'Chrome 登录卖家精灵后使用；不会消耗 MCP 额度，但会使用网页查询次数。'))
       );
     }
 
@@ -2380,7 +2427,7 @@ window.__ModuleLoader__.load({
           name: 'settings.section',
           id: SETTINGS_ID,
           order: 60,
-          label: () => localeLabel(ctx, 'settings.label', '亚马逊选品研究')
+          label: () => localeLabel(ctx, 'settings.label', '多平台选品研究')
         },
         SettingsPage,
         PLUGIN + ': settings section'

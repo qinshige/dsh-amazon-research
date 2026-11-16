@@ -1,7 +1,7 @@
 {
   "name": "dsh-amazon-research",
-  "version": "0.1.2",
-  "description": "亚马逊选品研究（DeepSeek Harness 插件）：类目市场取数、五维评分（92 分制归一化）、选品报告与侧栏面板",
+  "version": "0.3.0",
+  "description": "多平台选品研究（DeepSeek Harness 插件）：Amazon 类目数据、Trendyol 公开页面样本、独立评分与研究报告",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -32,6 +32,7 @@
     "index.js",
     "client.js",
     "host",
+    "scripts",
     "skills",
     "cordis.patch.yml",
     "README.md",

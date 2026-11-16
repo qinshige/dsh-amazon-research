@@ -1,11 +1,11 @@
 ---
 name: amazon-category-selection
-description: 亚马逊品类级选品与类目市场调研（SellerSprite 取数 + 五维评分 92 分制归一化）。触发词：品类选品、类目选品、类目分析、类目调研、市场调研、市场容量、集中度、价格带、蓝海类目、细分市场、Amazon category、category selection、category analysis、product selection、niche research、market research。
+description: 亚马逊品类级选品与类目市场调研（SellerSprite 取数 + 五维评分 92 分制归一化）。触发词：品类选品、类目选品、类目分析、类目调研、市场调研、市场容量、集中度、价格带、蓝海类目、细分市场、Amazon category、category selection、category analysis、niche research、market research。单品级选品（四途径/九策略/十维体检）请用 amazon-product-selection。
 ---
 
 # 亚马逊品类选品（Amazon Category Selection）
 
-把「这个类目值不值得做」拆成一条可复核的流水线：**查数据源 → 一次类目取数 → 读归一层产物 → 按五维解读 → 给出带数据出处的结论**。本技能只处理**类目级**判断，不处理单个 ASIN 的 Listing 体检。
+把「这个类目值不值得做」拆成一条可复核的流水线：**查数据源 → 一次类目取数 → 读归一层产物 → 按五维解读 → 给出带数据出处的结论**。本技能只处理**类目级**判断，不处理单个 ASIN 的 Listing 体检；单品级的四途径 / 九策略 / 十维体检与差异化，用同插件的 amazon-product-selection 技能（工具 research_product_select）。
 
 ## 0. 边界：做什么、不做什么
 

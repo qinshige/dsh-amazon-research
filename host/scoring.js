@@ -1,3 +1,4 @@
+import { scoreTrendyolMarket } from './trendyol-analysis.js';
 /**
  * dsh-amazon-research · host/scoring.js
  * 五维评分引擎（上游档位 + 92 分制归一化）。
@@ -560,6 +561,7 @@ function sumSubMarketUnits(market) {
  * @returns {{dimensions:Array<object>, total:number, max:number, normalized:number, grade:string, notes:Array<string>}} dimensions[].max 为上游实际上限（20/22/18/20/12），total 上限 92
  */
 export function scoreMarket(market, opts = {}) {
+  if (market?.platform === 'trendyol') return scoreTrendyolMarket(market);
   const input = isObject(market) ? market : {};
   const options = isObject(opts) ? opts : {};
   const notes = [];

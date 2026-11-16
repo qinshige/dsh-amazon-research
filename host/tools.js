@@ -2,7 +2,11 @@ import { readConfig, resolveOutputRoot } from './paths.js';
 import { listRuns, readRun } from './runs.js';
 import { selectCategory } from './category.js';
 import { selectCategoryWeb } from './category-web.js';
+import { selectCategoryTrendyol } from './category-trendyol.js';
+import { getPlatform, providerSupportsPlatform, providersForPlatform, resolveSite } from './platforms/index.js';
 import { judgeProfit, landedCost, pickTierPrice } from './sourcing/cost-model.js';
+import { buildSelectionPlan } from './selection/channels.js';
+import { parseCsv, screenCandidates } from './selection/pipeline.js';
 
 const OUTPUT_SCHEMA = {
   type: 'object',
@@ -60,14 +64,14 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
     {
       name: 'research_provider_status',
       description: [
-        '查询亚马逊选品数据源的密钥配置与连通状态，并返回插件默认配置（站点/样本上限/输出目录）。',
+        '查询 Amazon / Trendyol 数据源的密钥配置或浏览器状态，并返回插件默认配置（站点/样本上限/输出目录）。',
         '调用时机：用户第一次做选品、报告失败提示鉴权、或想知道 key 是否配好时先调用。',
         '本工具不产生数据服务额度消耗（未配置 key 时不会发网络请求）。',
       ].join('\n'),
       parameters: {
         type: 'object',
         properties: {
-          provider: { type: 'string', enum: ['sellersprite', 'sorftime', 'all'], description: '要检查的数据源，默认 all' },
+          provider: { type: 'string', enum: ['sellersprite', 'sellersprite-web', 'sorftime', 'trendyol-web', 'all'], description: '要检查的数据源，默认 all' },
         },
         additionalProperties: false,
       },
@@ -79,7 +83,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
         const ids = requested === 'all' ? Object.keys(providers.list().reduce((acc, p) => ({ ...acc, [p.id]: true }), {})) : [requested];
         const known = providers.list().map((p) => p.id);
         const targets = ids.filter((id) => known.includes(id));
-        if (!targets.length) return err('INVALID_ARGS', '未知数据源: ' + requested, '可选值：sellersprite / sorftime / all');
+        if (!targets.length) return err('INVALID_ARGS', '未知数据源: ' + requested, '可选值：sellersprite / sellersprite-web / sorftime / trendyol-web / all');
         const statuses = await Promise.all(targets.map((id) => providers.status(id).catch((error) => ({ id, ok: false, configured: false, lastError: String(error?.message ?? error) }))));
         return {
           ok: true,
@@ -97,19 +101,29 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
     {
       name: 'research_category_select',
       description: [
-        'Amazon 品类选品（对应上游 category-selection）：解析类目节点 → 取市场大盘与分布/商品数据 → 五维评分（92 分制归一化）→ 落盘 Markdown/CSV/HTML 报告。',
+        '品类选品（支持 Amazon / Trendyol）：取市场大盘与分布/商品数据 → 五维评分（92 分制归一化）→ 落盘 Markdown/CSV/HTML 报告。',
         '调用时机：用户说「分析 XX 品类 / 做品类选品 / 看看这个类目能不能进 / 蓝海选品」。',
-        'provider=sellersprite：走卖家精灵 MCP，约 9~11 次调用（消耗额度），调用前先向用户说明次数。',
-        'provider=sellersprite-web：走用户 Chrome 里已登录的卖家精灵网页版，不消耗 MCP 额度但会占用网页端查询次数；适合 MCP 未开通或报 TOOL_NOT_ALLOWED 时使用。',
+        'platform=amazon（默认）｜provider=sellersprite：走卖家精灵 MCP，约 9~11 次调用（消耗额度），调用前先向用户说明次数。',
+        'platform=amazon ｜provider=sellersprite-web：走用户 Chrome 里已登录的卖家精灵网页版，不消耗 MCP 额度但会占用网页端查询次数。',
+        'platform=trendyol：走 Trendyol 网页抓取（provider=trendyol-web），无需密钥；支持 TR（土耳其，www.trendyol.com，TRY）与 SA（沙特阿拉伯，www.trendyol.sa/en，SAR），抓取前核验国家/币种；其余官网国家仅展示、尚未接通抓取；每次 pages（默认2，最多5）次搜索页 + detailTopN（默认5，最多5）次商品页，另可能打开国家选择页。',
+        'Trendyol 不公布销量/销额：市场规模用「样本累计计数」代理（土耳其评论数，沙特评价数含仅评分、非文字评论）、增长潜力用「低计数商品数占比」，报告会显式标注口径差异。',
         '结果只返回摘要与产物路径；细节用 research_runs get 读取，不要把整表塞回上下文。',
       ].join('\n'),
       parameters: {
         type: 'object',
         properties: {
-          category: { type: 'string', description: '类目关键词（英文更准），如 "Cell Phones"、"Sofas"；与 nodeIdPath 二选一' },
+          platform: {
+            type: 'string',
+            enum: ['amazon', 'trendyol'],
+            description: '平台，默认 amazon。trendyol 只支持 provider=trendyol-web（网页抓取），不需要密钥',
+
+          },
+          category: { type: 'string', description: '类目关键词（英文更准），如 "Cell Phones"、"Sofas"；Trendyol TR 用土耳其语如 "tencere"；SA 用英文如 "cup holder"' },
           nodeIdPath: { type: 'string', description: '类目节点路径，如 "11091801:11974521:8882489011"；知道节点时优先传，能避免类目搜错' },
-          marketplace: { type: 'string', description: '站点，默认取插件配置（US）', enum: ['US', 'UK', 'DE', 'FR', 'IT', 'ES', 'CA', 'JP', 'MX', 'AU', 'IN', 'AE', 'BR', 'SA'] },
-          limit: { type: 'integer', minimum: 10, maximum: 100, description: '样本/头部商品数量，默认 50' },
+          marketplace: { type: 'string', description: '国家代码；默认取当前平台配置。Trendyol 官网国家均可识别，当前抓取只接通 TR / SA，其他返回 UNSUPPORTED_SITE', enum: [...new Set(['amazon','trendyol'].flatMap(id => getPlatform(id).sites.map(s => s.value)))] },
+          limit: { type: 'integer', minimum: 10, maximum: 100, description: '样本商品数上限，默认 50；Trendyol 不是页数' },
+          pages: { type: 'integer', minimum: 1, maximum: 5, description: 'Trendyol 搜索页数，默认2；Amazon 不使用' },
+          detailTopN: { type: 'integer', minimum: 0, maximum: 5, description: 'Trendyol 商品详情请求上限，默认5，可设0' },
           month: { type: 'string', description: '数据月份 yyyyMM，默认最近自然月' },
           unitCost: { type: 'number', description: '单位采购+头程成本（USD/件），用于利润维度；不传则按价格带估算并标注「仅供初筛」' },
           costs: {
@@ -126,6 +140,8 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
                 offerUrl: { type: 'string', description: '1688 offer 链接' },
                 verified: { type: 'boolean', description: '是否已进详情页验证' },
                 avgPriceUSD: { type: 'number', description: '该子市场在 Amazon 的均价（USD）' },
+                smallVolume: { type: 'boolean', description: '该细分是否小体量（100–200 单），true 时按「净利率 > 30%」判红线' },
+                volumeUnits: { type: 'number', description: '该细分的单链接月销（≤ 200 视为小体量）' },
               },
               additionalProperties: true,
             },
@@ -133,10 +149,10 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           outDir: { type: 'string', description: '报告输出根目录；建议传当前会话工作区下的 选品研究 目录（如 /path/to/workspace/选品研究）；不传则用插件配置的 outputRoot 或数据目录' },
           provider: {
             type: 'string',
-            enum: ['sellersprite', 'sellersprite-web'],
+            enum: ['sellersprite', 'sellersprite-web', 'trendyol-web'],
             description:
               '数据源：sellersprite = 官方 MCP（消耗额度）；sellersprite-web = 用户 Chrome 里已登录的卖家精灵网页版（MCP 未开通时用）',
-            default: 'sellersprite',
+
           },
         },
         additionalProperties: false,
@@ -145,9 +161,51 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
       isConcurrencySafe: () => false,
       async execute(args, exec) {
         const config = await readConfig(dataDir);
-        const provider = asString(args?.provider) || config.provider || 'sellersprite';
-        const marketplace = (asString(args?.marketplace) || config.marketplace || 'US').toUpperCase();
+        // 平台优先：不传默认 amazon（保持既有调用完全不变）
+        const platformId = ((asString(args?.platform) || config.platform || 'amazon').toLowerCase()).toLowerCase();
+        const platform = getPlatform(platformId);
+        if (!platform) {
+          return err('UNKNOWN_PLATFORM', '未知平台: ' + platformId, '可选值：' + ['amazon', 'trendyol'].join(' / '));
+        }
+        const provider = asString(args?.provider) || (providerSupportsPlatform(config.provider, platformId) ? config.provider : (platformId === 'trendyol' ? 'trendyol-web' : 'sellersprite'));
+        if (!providerSupportsPlatform(provider, platformId)) {
+          return err(
+            'PROVIDER_PLATFORM_MISMATCH',
+            '数据源 ' + provider + ' 不支持平台 ' + platform.label,
+            '该平台可用数据源：' + providersForPlatform(platformId).join(' / '),
+          );
+        }
+        const marketplace = (asString(args?.marketplace) || (platformId === (config.platform || 'amazon') ? config.marketplace : platform.defaultSite) || platform.defaultSite).toUpperCase();
+        if (!resolveSite(platformId, marketplace)) return err('INVALID_SITE', platform.label + ' 不支持站点 ' + marketplace);
         const outputRoot = resolveOutputRoot(config, asString(args?.outDir));
+
+        // Trendyol 走独立链路（网页抓取，无 MCP、无密钥）
+        if (platformId === 'trendyol') {
+          if (args?.nodeIdPath || args?.month || args?.unitCost != null || args?.costs != null) return err('INVALID_ARGS', 'Trendyol P1 不支持 Amazon 节点、月份或美元成本参数；请只传 category 搜索词');
+          try {
+            const result = await selectCategoryTrendyol({
+              keyword: asString(args?.category),
+              pages: args?.pages ?? 2,
+              detailTopN: args?.detailTopN ?? 5,
+              limit: args?.limit ?? config.defaultLimit ?? 50,
+              outputRoot,
+              dataDir,
+              marketplace,
+            });
+            return { ...result, outputRoot };
+          } catch (error) {
+            const code = typeof error?.code === 'string' ? error.code : 'SELECT_FAILED';
+            const message = String(error?.message ?? error);
+            const hint = code === 'CAPTCHA'
+              ? 'Trendyol 触发了人机验证。请先在 Chrome 手动打开目标国家的 Trendyol 官网通过验证，再重试（插件不会绕过验证码）。'
+              : code === 'COUNTRY_NO_ENTRY' || code === 'SESSION_NOT_READY'
+                ? '土耳其请在 Chrome 打开 www.trendyol.com 并选择 Türkiye；沙特阿拉伯请打开 www.trendyol.sa/en 并选择 Saudi Arabia。不会自动抓取其他国家。'
+                : code === 'EMPTY_RESULT'
+                  ? '换一个土耳其语关键词重试（如 tencere / mutfak gereçleri / aydınlatma）。'
+                  : undefined;
+            return err(code, message, hint);
+          }
+        }
         const costRows = Array.isArray(args?.costs)
           ? args.costs
             .filter((item) => item && typeof item === 'object')
@@ -160,6 +218,8 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
               offerUrl: asString(item.offerUrl),
               verified: item.verified === true,
               avgPriceUSD: typeof item.avgPriceUSD === 'number' && Number.isFinite(item.avgPriceUSD) ? item.avgPriceUSD : null,
+              smallVolume: item.smallVolume === true,
+              volumeUnits: typeof item.volumeUnits === 'number' && Number.isFinite(item.volumeUnits) ? item.volumeUnits : null,
             }))
           : [];
         if (provider === 'sellersprite-web') {
@@ -459,7 +519,92 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           fetchedAt: new Date().toISOString(),
         };
       },
-    },    {
+    },
+    {
+      name: 'research_product_select',
+      description: [
+        '选品全流程（四途径 → 九策略 → 十维 → 差异化）：action=plan 出路线图，action=screen 对候选 ASIN 做十维体检、一票否决、分档与差异化建议。',
+        'action=plan：按站点/类目生成站内 7 个榜单入口（Best Sellers / New Releases / Movers / Most Wished For / Gift Ideas / Deals / 热搜词）、站外与软件渠道、九种选品策略的适用性与步骤、十维采集清单。免费，不取数。',
+        'action=screen：接收采集表（rows 数组或 csv 文本，中英文列名均可），逐品输出 达标/警戒/不达标/未知、一票否决、一档/二档/三档/待复核/淘汰、全成本净利率、敏感性与差异化方向，并落盘 report.md / selection.csv。免费，不消耗数据服务额度。',
+        '纪律：缺失字段记「未知」不计入命中率；采购价必须来自 1688 真实报价；榜单数字必须真实抓取，禁止用记忆补。',
+      ].join('\n'),
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['plan', 'screen'], description: 'plan=路线图（免费）；screen=体检候选品（免费）' },
+          marketplace: { type: 'string', description: 'Amazon 站点，默认取插件配置（US）' },
+          category: { type: 'string', description: '类目关键词或类目名（用于拼榜单链接与报告标题）' },
+          nodeIdPath: { type: 'string', description: '类目节点路径（如 11091801:11974521:8882489011），用于拼榜单链接' },
+          keyword: { type: 'string', description: '核心关键词（热搜词/ABA 路线用）' },
+          signals: {
+            type: 'object',
+            description: '可选类目信号，用于判断九策略适用性：{brandCr3: 0~1, avgPrice: USD}',
+            additionalProperties: true,
+          },
+          rows: {
+            type: 'array',
+            description: 'screen 用：候选品数组。列名支持模板中文名（ASIN/售价USD/采购价CNY/品牌集中度%/前10评价数…）或英文名',
+            items: { type: 'object', additionalProperties: true },
+          },
+          csv: { type: 'string', description: 'screen 用：CSV 文本（与 rows 二选一），首行表头' },
+          fx: { type: 'number', description: '汇率（1 USD = ? CNY），默认 7.1' },
+          title: { type: 'string', description: '报告标题，默认用 category 或「选品体检」' },
+          source: { type: 'string', description: '候选来源标注，如「BS 榜 / 竞品店铺 / 手动采集」' },
+          outDir: { type: 'string', description: '报告输出根目录；不传用插件配置' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      output: { schema: OUTPUT_SCHEMA, render: renderJson },
+      isConcurrencySafe: () => false,
+      async execute(args) {
+        const config = await readConfig(dataDir);
+        const outputRoot = resolveOutputRoot(config, asString(args?.outDir));
+        const marketplace = (asString(args?.marketplace) || config.marketplace || 'US').toUpperCase();
+        const action = asString(args?.action) || 'plan';
+        const category = asString(args?.category);
+        const nodeIdPath = asString(args?.nodeIdPath);
+        const keyword = asString(args?.keyword);
+        const signals = args?.signals && typeof args.signals === 'object' ? args.signals : {};
+        const planInput = { marketplace, category, nodeIdPath, keyword, signals };
+
+        if (action === 'plan') {
+          if (!category && !nodeIdPath && !keyword) {
+            return err('INVALID_ARGS', 'plan 需要 category、nodeIdPath 或 keyword 之一', '例：{action:"plan", category:"vases", marketplace:"US"}');
+          }
+          return { ok: true, action, outputRoot, ...buildSelectionPlan(planInput) };
+        }
+
+        if (action !== 'screen') {
+          return err('INVALID_ARGS', '未知 action：' + action, '可选值：plan / screen');
+        }
+
+        let rows = Array.isArray(args?.rows) ? args.rows.filter((row) => row && typeof row === 'object') : [];
+        if (rows.length === 0 && asString(args?.csv)) rows = parseCsv(asString(args.csv));
+        if (rows.length === 0) {
+          return err('INVALID_ARGS', 'screen 需要 rows 数组或 csv 文本', '可先用 action=plan 取采集清单，再按 assets/selection-table-template.csv 填表');
+        }
+
+        const plan = (category || nodeIdPath || keyword) ? buildSelectionPlan(planInput) : null;
+        const fx = typeof args?.fx === 'number' && Number.isFinite(args.fx) && args.fx > 0 ? args.fx : 7.1;
+        try {
+          const result = await screenCandidates({
+            rows,
+            title: asString(args?.title) || category || '选品体检',
+            marketplace,
+            fx,
+            outputRoot,
+            dataDir,
+            source: asString(args?.source) || 'research_product_select',
+            plan,
+          });
+          return { ...result, action };
+        } catch (error) {
+          return err(typeof error?.code === 'string' ? error.code : 'SELECTION_FAILED', String(error?.message ?? error));
+        }
+      },
+    },
+    {
       name: 'mcp_call',
       description: [
         '直接调用已配置数据源的 MCP 工具（逃生口）：用于插件尚未封装的能力（关键词、评论、流量、ABA、单品详情等）。',

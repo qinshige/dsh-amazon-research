@@ -1,3 +1,4 @@
+import { listPlatforms, getPlatform, providerSupportsPlatform, resolveSite } from './platforms/index.js';
 import { readFile } from 'node:fs/promises';
 import { join, extname } from 'node:path';
 import { readConfig, writeConfig, resolveOutputRoot, outputRootCandidates, isHostInternalPath } from './paths.js';
@@ -126,14 +127,16 @@ export function registerRoutes(ctx, deps) {
           .slice(0, 30);
         // 数据源状态探测必须有超时保护：任何一个慢探针（比如需要驱动浏览器的网页链路）
         // 都不该拖垮整个面板请求（前端只等 8 秒）。
-        const withTimeout = (promise, ms, fallback) =>
-          Promise.race([
+        const withTimeout = (promise, ms, fallback) => {
+          let timer;
+          return Promise.race([
             promise.catch((error) => ({ ok: false, lastError: String(error?.message ?? error) })),
-            new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
-          ]);
+            new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), ms); }),
+          ]).finally(() => clearTimeout(timer));
+        };
         const providersInfo = await Promise.all(
           providers.list().map(async (p) => {
-            if (p.id === 'sellersprite-web') {
+            if (p.id.endsWith('-web')) {
               const status = await withTimeout(
                 providers.status(p.id),
                 PROVIDER_PROBE_TIMEOUT_MS,
@@ -141,6 +144,7 @@ export function registerRoutes(ctx, deps) {
               );
               return {
                 id: p.id,
+                platforms: p.platforms,
                 label: p.label,
                 configured: true,
                 ok: Boolean(status.ok),
@@ -150,16 +154,18 @@ export function registerRoutes(ctx, deps) {
               };
             }
             const described = await secrets.describe(p.id).catch(() => ({ configured: false }));
-            return { id: p.id, label: p.label, configured: Boolean(described.configured), ok: Boolean(described.configured), capabilities: p.capabilities };
+            return { id: p.id, platforms: p.platforms, label: p.label, configured: Boolean(described.configured), ok: Boolean(described.configured), capabilities: p.capabilities };
           }),
         );
         sendJson(response, 200, {
           ok: true,
           version,
+          defaultPlatform: config.platform,
+          platforms: listPlatforms(),
           defaultMarketplace: config.marketplace,
           outputRoot,
           outputRoots: roots,
-          config: { marketplace: config.marketplace, defaultLimit: config.defaultLimit, outputRoot: config.outputRoot || '', provider: config.provider },
+          config: { platform: config.platform, marketplace: config.marketplace, defaultLimit: config.defaultLimit, outputRoot: config.outputRoot || '', provider: config.provider },
           providers: providersInfo,
           runs,
         });
@@ -199,6 +205,16 @@ export function registerRoutes(ctx, deps) {
       if (path === '/settings' && method === 'POST') {
         const body = await readJsonBody(request);
         const patch = {};
+        const platformId = typeof body.platform === 'string' ? body.platform.trim().toLowerCase() : config.platform;
+        const platform = getPlatform(platformId);
+        if (!platform) { fail(response, 400, 'invalid_platform', '未知平台'); return; }
+        const changed = platformId !== config.platform;
+        const provider = typeof body.provider === 'string' ? body.provider.trim() : (changed ? platform.providers[0] : config.provider);
+        const site = typeof body.marketplace === 'string' ? body.marketplace.trim().toUpperCase() : (changed ? platform.defaultSite : config.marketplace);
+        if (!providerSupportsPlatform(provider, platformId)) { fail(response, 400, 'provider_platform_mismatch', '数据源与平台不匹配'); return; }
+        if (!resolveSite(platformId, site)) { fail(response, 400, 'invalid_site', '该平台不支持站点 ' + site); return; }
+        if (provider === 'sorftime') { fail(response, 400, 'unsupported_provider', 'Sorftime 暂不支持品类报告默认链路，请用卖家精灵'); return; }
+        Object.assign(patch, { platform: platformId, provider, marketplace: site });
         if (typeof body.marketplace === 'string' && body.marketplace.trim()) patch.marketplace = body.marketplace.trim().toUpperCase();
         if (body.defaultLimit !== undefined) {
           const n = Math.min(100, Math.max(10, Math.round(Number(body.defaultLimit) || 50)));
@@ -213,7 +229,7 @@ export function registerRoutes(ctx, deps) {
           patch.outputRoot = value;
         }
         const next = await writeConfig(dataDir, patch);
-        sendJson(response, 200, { ok: true, config: { marketplace: next.marketplace, defaultLimit: next.defaultLimit, outputRoot: next.outputRoot || '' } });
+        sendJson(response, 200, { ok: true, config: { platform: next.platform, provider: next.provider, marketplace: next.marketplace, defaultLimit: next.defaultLimit, outputRoot: next.outputRoot || '' } });
         return;
       }
 

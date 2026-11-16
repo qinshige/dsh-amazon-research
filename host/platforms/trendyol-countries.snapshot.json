@@ -1,0 +1,669 @@
+{
+  "source": "https://www.trendyol.sa/",
+  "observedAt": "2026-11-13T08:07:00.017Z",
+  "countries": [
+    {
+      "id": "1",
+      "code": "TR",
+      "name": "Türkiye",
+      "enabled": true,
+      "currency": "TRY",
+      "currencySymbol": "TL",
+      "culture": "tr-TR",
+      "language": "tr",
+      "otherLanguages": [
+        "en",
+        "ar"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "no-subpath"
+    },
+    {
+      "id": "2",
+      "code": "DE",
+      "name": "Germany",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "de-DE",
+      "language": "de",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "36",
+      "code": "AE",
+      "name": "United Arab Emirates",
+      "enabled": true,
+      "currency": "AED",
+      "currencySymbol": "AED",
+      "culture": "en-AE",
+      "language": "en",
+      "otherLanguages": [
+        "ar"
+      ],
+      "tld": ".ae",
+      "subPathStrategy": "non-default-lang-only-subpath"
+    },
+    {
+      "id": "35",
+      "code": "SA",
+      "name": "Saudi Arabia",
+      "enabled": true,
+      "currency": "SAR",
+      "currencySymbol": "SAR",
+      "culture": "ar-SA",
+      "language": "ar",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".sa",
+      "subPathStrategy": "non-default-lang-only-subpath"
+    },
+    {
+      "id": "43",
+      "code": "QA",
+      "name": "Qatar",
+      "enabled": true,
+      "currency": "QAR",
+      "currencySymbol": "QAR",
+      "culture": "ar-QA",
+      "language": "ar",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "culture-subpath"
+    },
+    {
+      "id": "48",
+      "code": "KW",
+      "name": "Kuwait",
+      "enabled": true,
+      "currency": "KWD",
+      "currencySymbol": "KWD",
+      "culture": "ar-KW",
+      "language": "ar",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "culture-subpath"
+    },
+    {
+      "id": "49",
+      "code": "OM",
+      "name": "Oman",
+      "enabled": true,
+      "currency": "OMR",
+      "currencySymbol": "OMR",
+      "culture": "ar-OM",
+      "language": "ar",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "culture-subpath"
+    },
+    {
+      "id": "50",
+      "code": "BH",
+      "name": "Bahrain",
+      "enabled": true,
+      "currency": "BHD",
+      "currencySymbol": "BHD",
+      "culture": "ar-BH",
+      "language": "ar",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "culture-subpath"
+    },
+    {
+      "id": "110",
+      "code": "UA",
+      "name": "Ukraine",
+      "enabled": true,
+      "currency": "UAH",
+      "currencySymbol": "UAH",
+      "culture": "uk-UA",
+      "language": "uk",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "111",
+      "code": "MD",
+      "name": "Moldova",
+      "enabled": true,
+      "currency": "MDL",
+      "currencySymbol": "MDL",
+      "culture": "ro-MD",
+      "language": "ro",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "8",
+      "code": "AT",
+      "name": "Austria",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "de-AT",
+      "language": "de",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "9",
+      "code": "BE",
+      "name": "Belgium",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-BE",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "12",
+      "code": "BG",
+      "name": "Bulgaria",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "bg-BG",
+      "language": "bg",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "13",
+      "code": "HR",
+      "name": "Croatia",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-HR",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "14",
+      "code": "CZ",
+      "name": "Czechia",
+      "enabled": true,
+      "currency": "CZK",
+      "currencySymbol": "Kč",
+      "culture": "cs-CZ",
+      "language": "cs",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "15",
+      "code": "DK",
+      "name": "Denmark",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-DK",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "16",
+      "code": "EE",
+      "name": "Estonia",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-EE",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "17",
+      "code": "FI",
+      "name": "Finland",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-FI",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "18",
+      "code": "FR",
+      "name": "France",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-FR",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "19",
+      "code": "GR",
+      "name": "Greece",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "el-GR",
+      "language": "el",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "20",
+      "code": "HU",
+      "name": "Hungary",
+      "enabled": true,
+      "currency": "HUF",
+      "currencySymbol": "Ft",
+      "culture": "hu-HU",
+      "language": "hu",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "21",
+      "code": "IE",
+      "name": "Ireland",
+      "enabled": false,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-IE",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "22",
+      "code": "IT",
+      "name": "Italy",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-IT",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "23",
+      "code": "LV",
+      "name": "Latvia",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-LV",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "24",
+      "code": "LT",
+      "name": "Lithuania",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-LT",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "25",
+      "code": "MT",
+      "name": "Malta",
+      "enabled": false,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-MT",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "26",
+      "code": "NL",
+      "name": "Netherlands",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-NL",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "27",
+      "code": "PL",
+      "name": "Poland",
+      "enabled": true,
+      "currency": "PLN",
+      "currencySymbol": "zł",
+      "culture": "pl-PL",
+      "language": "pl",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "28",
+      "code": "PT",
+      "name": "Portugal",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-PT",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "29",
+      "code": "RO",
+      "name": "Romania",
+      "enabled": true,
+      "currency": "RON",
+      "currencySymbol": "Lei",
+      "culture": "ro-RO",
+      "language": "ro",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "30",
+      "code": "SK",
+      "name": "Slovakia",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "sk-SK",
+      "language": "sk",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "115",
+      "code": "RS",
+      "name": "Serbia",
+      "enabled": true,
+      "currency": "RSD",
+      "currencySymbol": "RSD",
+      "culture": "rs-RS",
+      "language": "rs",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "31",
+      "code": "SI",
+      "name": "Slovenia",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-SI",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "32",
+      "code": "ES",
+      "name": "Spain",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-ES",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "33",
+      "code": "SE",
+      "name": "Sweden",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-SE",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "34",
+      "code": "GB",
+      "name": "United Kingdom",
+      "enabled": false,
+      "currency": "GBP",
+      "currencySymbol": "£",
+      "culture": "en-GB",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "37",
+      "code": "RU",
+      "name": "Russia",
+      "enabled": false,
+      "currency": "RUB",
+      "currencySymbol": "₽",
+      "culture": "en-RU",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "85",
+      "code": "AZ",
+      "name": "Azerbaijan",
+      "enabled": true,
+      "currency": "AZN",
+      "currencySymbol": "₼",
+      "culture": "tr-AZ",
+      "language": "tr",
+      "otherLanguages": [
+        "az"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "no-subpath"
+    },
+    {
+      "id": "1",
+      "code": "US",
+      "name": "USA",
+      "enabled": false,
+      "currency": "USD",
+      "currencySymbol": "$",
+      "culture": "en-US",
+      "language": "tr",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "no-subpath"
+    },
+    {
+      "id": "41",
+      "code": "CA",
+      "name": "Canada",
+      "enabled": false,
+      "currency": "CAD",
+      "currencySymbol": "$",
+      "culture": "en-CA",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "42",
+      "code": "LU",
+      "name": "Luxembourg",
+      "enabled": true,
+      "currency": "EUR",
+      "currencySymbol": "€",
+      "culture": "en-LU",
+      "language": "en",
+      "otherLanguages": [],
+      "tld": ".com",
+      "subPathStrategy": "language-subpath"
+    },
+    {
+      "id": "1",
+      "code": "GE",
+      "name": "Georgia",
+      "enabled": true,
+      "currency": "GEL",
+      "currencySymbol": "₾",
+      "culture": "en-GE",
+      "language": "tr",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "no-subpath"
+    },
+    {
+      "id": "1",
+      "code": "KZ",
+      "name": "Kazakhstan",
+      "enabled": true,
+      "currency": "KZT",
+      "currencySymbol": "₸",
+      "culture": "en-KZ",
+      "language": "tr",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "no-subpath"
+    },
+    {
+      "id": "1",
+      "code": "KG",
+      "name": "Kyrgyzstan",
+      "enabled": true,
+      "currency": "KGS",
+      "currencySymbol": "с",
+      "culture": "en-KG",
+      "language": "tr",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "no-subpath"
+    },
+    {
+      "id": "1",
+      "code": "JO",
+      "name": "Jordan",
+      "enabled": false,
+      "currency": "JOD",
+      "currencySymbol": "JD",
+      "culture": "en-JO",
+      "language": "tr",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "no-subpath"
+    },
+    {
+      "id": "1",
+      "code": "IQ",
+      "name": "Iraq",
+      "enabled": true,
+      "currency": "IQD",
+      "currencySymbol": "IQD",
+      "culture": "en-IQ",
+      "language": "tr",
+      "otherLanguages": [
+        "ar",
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "no-subpath"
+    },
+    {
+      "id": "1",
+      "code": "LB",
+      "name": "Lebanon",
+      "enabled": false,
+      "currency": "LBP",
+      "currencySymbol": "L£",
+      "culture": "en-LB",
+      "language": "tr",
+      "otherLanguages": [
+        "en"
+      ],
+      "tld": ".com",
+      "subPathStrategy": "no-subpath"
+    }
+  ]
+}

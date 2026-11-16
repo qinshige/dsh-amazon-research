@@ -144,18 +144,18 @@ export async function runJson(tabId, js, { timeout = 120_000, strict = true } = 
   }
 }
 
-/** 等待页面出现某个 DOM 标志 */
-export async function waitFor(tabId, readyJs, { timeout = 45, intervalMs = 2000 } = {}) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
+/** 等待页面出现某个 DOM 标志。timeout 单位为秒；runJs 的 timeout 单位为毫秒。 */
+export async function waitFor(tabId, readyJs, { timeout = 45, intervalMs = 2000, check = runJs, now = Date.now, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
+  const deadline = now() + timeout * 1000;
+  while (now() < deadline) {
     try {
-      const raw = await runJs(tabId, readyJs, { timeout: 40 });
+      const raw = await check(tabId, readyJs, { timeout: Math.max(1, Math.min(40_000, deadline - now())) });
       const value = String(raw || '').trim();
       if (value && value !== 'false' && value !== 'null' && value !== 'undefined' && value !== '__NOT_FOUND__') return true;
     } catch {
       /* 页面未就绪，继续等 */
     }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    await sleep(Math.max(0, Math.min(intervalMs, deadline - now())));
   }
   return false;
 }

@@ -1,6 +1,6 @@
 # dsh-amazon-research
 
-**DeepSeek Harness 插件 · 亚马逊品类选品研究**
+**DeepSeek Harness 插件 · 多平台选品研究（Amazon + Trendyol P0/P1）**
 
 把「这个美国站类目能不能进」从经验判断变成可复核的数据结论：类目节点解析 → 市场大盘与分布数据 → 五维评分 → 全成本净利测算 → 中文选品报告 → 侧栏面板查看。
 
@@ -16,6 +16,62 @@
 ```
 
 ---
+
+## v0.3.0：四途径 → 九策略 → 十维 → 差异化（选品全流程）
+
+- 新增工具 `research_product_select`：
+  - `action=plan`：按站点/类目生成 Best Sellers、New Releases、Movers & Shakers、Most Wished For、Gift Ideas、Today's Deals、热搜词 7 个站内入口（带榜单链接），外加站外/软件/线下渠道、九种选品策略的适用性与步骤、十维采集清单；免费、不取数。
+  - `action=screen`：候选 ASIN 逐品十维体检（市场容量、集中度、评价门槛、新品占比、价格、趋势、季节、退货、物流、供应链、侵权认证、利润），输出达标/警戒/不达标/未知、一票否决、一档/二档/三档/待复核/淘汰、全成本净利率与敏感性、差异化方向；落盘 report.md / selection.csv；免费、不耗数据服务额度。
+- 类目报告新增第九章「选品落地」：四途径入口、九策略适配、类目级十维体检、差异化方向、落地动作与精铺闭环。
+- 内置技能新增 `amazon-product-selection`（选品全流程），与 `amazon-category-selection`（类目五维）分工：单品级 vs 类目级。
+- 修复：1688 成本行此前丢失 `smallVolume`，导致「小体量净利率 > 30%」红线不触发；报告里对「外观专利结构差异」的表述改为「需专业检索，不作免责结论」。
+
+## v0.2.1：平台抽象、官网国家目录与 Trendyol 沙特优先
+
+- 保留原插件 ID、工具名及 Amazon 路径；历史无 platform 的记录按 Amazon 展示。
+- 设置页联动选择平台 → 数据源 → 站点，面板可切换默认平台、过滤历史平台。
+- Amazon：Sellersprite MCP / Sellersprite 网页；Sorftime 仍是预留能力，不能设为品类报告默认源。
+- Trendyol：土耳其 TR（www.trendyol.com，TRY/TL）与沙特阿拉伯 SA（www.trendyol.sa/en，SAR），数据源 trendyol-web，无需密钥。当前驱动依赖 macOS Google Chrome、允许 Apple Events 执行 JavaScript，并在目标官网确认国家；不会自动切国或悄悄退回 TR。
+- 国家目录来自官网公开 storefrontList：2026-11-13 快照中 47 项、启用 39 项，全部用中文展示。按 ISO 国家代码区分（storefrontId 可重复），只展示 enabled=true；8 个禁用国家不展示。币种遵循官网而非当地法币推测。来源快照在 host/platforms/trendyol-countries.snapshot.json。
+- 39 个国家不等于 39 个抓取器：当前仅 TR / SA 接通，其余显示“抓取待接通”，调用在访问浏览器前返回 UNSUPPORTED_SITE。官网后续增减需更新快照及中文映射。
+- 轻量状态探测只列标签页，不打开数据页；它不是登录、国家或页面可抓取的验证结果。
+- 主机插件代码、工具 schema、系统引导更新需要**完全退出并重新打开 DSH**，之后刷新原 GUI。未运行同 checkout 的 dev:web watcher 时不要依赖客户端 HMR；不要另起服务器替代当前 GUI。
+
+### Trendyol 工具调用
+
+```json
+{"platform":"trendyol","provider":"trendyol-web","marketplace":"TR","category":"tencere","pages":2,"limit":60,"detailTopN":3}
+```
+
+沙特示例：
+
+```json
+{"platform":"trendyol","provider":"trendyol-web","marketplace":"SA","category":"cup holder","pages":1,"limit":30,"detailTopN":1}
+```
+
+将以上参数传给 research_category_select。pages 为 1–5（默认 2），limit 为 10–100 个去重商品（默认取配置，初始 50），detailTopN 为 0–5（默认 5）。达到 limit 可提前停止翻页。
+
+调用前告知最多 pages 个搜索页 + detailTopN 个详情页读取，不消耗 MCP 额度；国家选择/加载另有浏览器请求。验证码、限流、拒绝访问或国家/域名/币种与目标不符时停止并提示人工处理，不绕过风控。普通详情字段缺失可保留部分结果并警告。nodeIdPath、month、unitCost、costs 是 Amazon 参数，Trendyol P1 拒绝使用。
+
+### 数据与评分边界
+
+关键词搜索结果是样本，非全类目；抓取顺序不是畅销排名。月销量、月销额、平台自营占比、卖家集中度及利润未取到，不补零、不推算。
+
+实验模型 trendyol-review-proxy-v1：市场活跃度用样本累计计数（TR 评论数；SA 评价数，含仅评分、非文字评论）；增长/机会用计数 <100 的商品数占比（仅以有计数字段的样本为分母）；CR3/HHI 用已知品牌计数权重并披露覆盖率。自营缺数占位 3/10，利润缺数 0/12，不代表真实利润为零。总分仍为92，归一化 total/92×100；**与 Amazon 以及不同国家样本不可横比，评级不构成进入建议**。价格随目标国家使用 TRY/TL 或 SAR，不套用美元利润档位。沙特搜索卡片展示价可能附带结算折扣；会员专享价不混入普通价格统计，缺失保持未取到。具体阈值见独立报告说明。
+
+报告输出：Markdown、HTML 表格看板、market/manifest/scores JSON、商品及品牌 CSV。保存原始抓取时间、生成时间、来源链接、样本覆盖和缺失说明。
+
+### 离线重建与回归
+
+```sh
+node scripts/regenerate-trendyol.mjs /绝对路径/market.json /绝对路径/选品研究
+node --test test/*.test.mjs
+node --check index.js && node --check client.js
+```
+
+重建脚本不调用浏览器/数据服务，保留原始 fetchedAt，新增带 Trendyol 前缀的运行，不覆盖原始快照；原始字段未重新在线验证会明确标注。第三个可选参数为插件数据目录，用于登记到面板历史。
+
+以下方法论与成本模型适用于 **Amazon**；Trendyol 当前不支持全成本利润测算。
 
 ## 这个插件解决什么问题
 
@@ -33,16 +89,46 @@
 | 工具 | 作用 | 消耗 |
 |---|---|---|
 | `research_provider_status` | 检查数据源密钥/连通与插件配置 | 免费 |
-| `research_category_select` | 品类选品全流程 | MCP 链路 9~11 次调用 ／ 网页链路 3 次页面读取 |
+| `research_category_select` | 品类选品全流程（类目级） | MCP 链路 9~11 次调用 ／ 网页链路 3 次页面读取 |
+| `research_product_select` | 选品全流程：四途径路线 + 九策略 + 十维体检 + 差异化（单品级） | 免费 |
 | `research_unit_cost` | 1688 采价：搜货源 + 进详情页验证阶梯价/起批量/材质/件重/代发 | 1688 网页端查询次数 |
 | `research_runs` | 列出/读取历史运行与报告产物 | 免费 |
 | `mcp_call` | 直接调用数据源 MCP 工具（逃生口） | 消耗额度 |
 
-内嵌技能 `amazon-category-selection`：装好即可被模型发现，无需手动拷贝到 `~/.dsh/skills`。
+内嵌技能（装好即可被模型发现，无需手动拷贝到 `~/.dsh/skills`）：
+
+- `amazon-category-selection`：类目级五维评分与市场调研；
+- `amazon-product-selection`：四途径 → 九策略 → 十维 → 差异化的单品级选品全流程（含浏览器取数手册、KPI 否决清单、利润模型、合规入口）。
 
 ---
 
 ## 方法论
+
+### 〇、选品全流程（四途径 → 九策略 → 十维 → 差异化）
+
+```
+四途径（从哪找）   站内 7 个榜单/热搜 + 站外平台 + 软件 + 线下
+      ↓
+九策略（怎么筛）   细分 / 竞品店铺 / 跨站点 / 关联 / 交叉 / 同场景 / 高单价 / 新型市场 / 热门载体
+      ↓
+十维（看什么数）   容量与竞争、趋势、价格、评分评价、新品、季节、质量退货、物流、供应链、侵权认证（+ 利润）
+      ↓
+定品与差异化       一票否决 → 一档/二档/三档/待复核/淘汰 → 差异化方向 → 小批量测款
+```
+
+| 步骤 | 工具 |
+|---|---|
+| 出路线图（榜单链接、九策略适用性、十维清单） | `research_product_select { action: "plan" }` |
+| 类目大盘与五维评分 | `research_category_select` |
+| 候选 ASIN 十维体检与报告 | `research_product_select { action: "screen", rows: [...] }` |
+| 1688 采价与净利重算 | `research_unit_cost` |
+| 读历史报告 | `research_runs` |
+
+**一票否决**：大类目（< 3 级）、品牌集中度 > 70%、前 10 评价 > 10000、变体 > 3、专利/商标风险、易碎/抛货、退货 > 10% 且差评不可解决、净利率 < 15%。
+
+**分档**：一档 = 无否决 + 命中率 ≥ 80% + 净利率 > 30%；二档 = 无否决 + 命中率 ≥ 60% + 净利率 ≥ 25%（小体量 > 30%）；其余三档；缺净利率或可判定 KPI < 6 项为待复核。
+
+**差异化**：外在（颜色、数量、SKU、包装、主图、说明书）+ 内在（人群、场景、材质、外观、功能组合、防退货、认证前置），每条建议必须挂真实证据。
 
 ### 一、五维评分（92 分制）
 
@@ -51,7 +137,7 @@
 | 维度 | 满分 | 看什么 |
 |---|---|---|
 | 市场规模 | 20 | 月销额、销量、在售商品数 |
-| 增长潜力 | 22 | 低评论商品销量占比、需求趋势 |
+| 增长潜力 | 22 | 低评论商品销量占比（评论数 < 300，非趋势、非新品占比） |
 | 竞争烈度 | 18 | Top3 品牌/商品/卖家集中度、品牌 HHI |
 | 进入壁垒 | 20 | Amazon 自营占比、新品占比、评论壁垒 |
 | 利润空间 | 12 | 全成本净利率（见下） |
