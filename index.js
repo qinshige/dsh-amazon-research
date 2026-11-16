@@ -22,7 +22,7 @@ import { createTools } from './host/tools.js';
 import { registerRoutes } from './host/routes.js';
 
 export const name = 'dsh-amazon-research';
-export const version = '0.3.5';
+export const version = '0.4.0';
 
 /** 工具是硬依赖；缺了它插件没有意义。 */
 export const inject = ['tools'];

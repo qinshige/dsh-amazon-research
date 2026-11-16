@@ -734,7 +734,10 @@ async function assertNoWall(tabId, where) {
  * @param {{keyword:string, limit?:number, log?:Function}} opts
  * @returns {Promise<{rows:Array, count:number, keyword:string, fetchedAt:string, source:string}>}
  */
+import { push as livePush } from '../live.js';
+
 export async function searchOffers({ keyword, limit = 20, log = () => {} } = {}) {
+  livePush({ phase: 'sourcing', level: 'info', message: '搜索 1688 货源：' + (keyword || '') });
   if (!keyword) throw new Error('缺少 keyword');
   const url = buildSearchUrl(keyword);
   log('打开 1688 搜索页：' + keyword + ' → ' + url);
@@ -800,6 +803,7 @@ export async function searchOffers({ keyword, limit = 20, log = () => {} } = {})
  * @returns {Promise<Object>} 详情页字段（阶梯价/起批量/材质/件重/供应商/一件代发…）
  */
 export async function fetchOfferDetail({ url, log = () => {} } = {}) {
+  livePush({ phase: 'sourcing', level: 'info', message: '进 1688 详情页验证阶梯价', url });
   if (!url) throw new Error('缺少 url');
   const offerId = (String(url).match(/offer\/(\d+)\.html/) || [])[1] || null;
   if (!offerId) throw new Error('无法从 url 解析 offerId：' + url);

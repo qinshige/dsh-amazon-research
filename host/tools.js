@@ -8,6 +8,8 @@ import { judgeProfit, landedCost, pickTierPrice } from './sourcing/cost-model.js
 import { buildSelectionPlan } from './selection/channels.js';
 import { parseCsv, screenCandidates } from './selection/pipeline.js';
 import { productsToSelectionRows } from './selection/from-products.js';
+import { attachToRun, beginSession, endSession, push as livePush } from './live.js';
+import { join } from 'node:path';
 
 const OUTPUT_SCHEMA = {
   type: 'object',
@@ -15,6 +17,35 @@ const OUTPUT_SCHEMA = {
   properties: { ok: { type: 'boolean' } },
   required: ['ok'],
 };
+
+const LIVE_SESSION_DIR = '.live';
+
+/**
+ * 跑一段会驱动浏览器的流程，并把过程写进实时会话（面板可实时看）。
+ * 录屏默认关闭：record=true 才截 Chrome 窗口（只截窗口区域，不截整屏）。
+ */
+async function withLiveSession({ outputRoot, record = false, fps = 1, source = '' }, fn) {
+  const sessionId = 'live-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+  const dir = join(outputRoot, LIVE_SESSION_DIR, sessionId);
+  await beginSession({ runId: sessionId, dir, record, fps, source });
+  let result;
+  let error = null;
+  try {
+    result = await fn(sessionId);
+  } catch (err) {
+    error = err;
+  } finally {
+    const ended = await endSession({ status: error ? 'failed' : 'done' });
+    if (result && result.dir && ended && ended.dir) {
+      await attachToRun(result.dir, ended.dir);
+    }
+    if (ended && ended.video) {
+      livePush({ phase: 'record', level: 'info', message: '录屏文件：' + ended.video });
+    }
+  }
+  if (error) throw error;
+  return result;
+}
 
 const renderJson = (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }];
 
@@ -148,6 +179,8 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
             },
           },
           outDir: { type: 'string', description: '报告输出根目录；建议传当前会话工作区下的 选品研究 目录（如 /path/to/workspace/选品研究）；不传则用插件配置的 outputRoot 或数据目录' },
+          record: { type: 'boolean', description: '是否录制浏览器操作过程（录 Chrome 窗口区域，不录整屏）。默认 false；录屏文件为 recording.mp4，实时事件流始终开启' },
+          recordFps: { type: 'number', description: '录屏帧率，默认 1 fps（2 可更流畅但文件更大）' },
           provider: {
             type: 'string',
             enum: ['sellersprite', 'sellersprite-web', 'trendyol-web'],
@@ -225,7 +258,12 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           : [];
         if (provider === 'sellersprite-web') {
           try {
-            const result = await selectCategoryWeb({
+            const result = await withLiveSession({
+              outputRoot,
+              record: args?.record === true,
+              fps: typeof args?.recordFps === 'number' ? args.recordFps : 1,
+              source: '卖家精灵网页 · ' + (asString(args?.category) || asString(args?.nodeIdPath) || '类目'),
+            }, () => selectCategoryWeb({
               marketplace,
               category: asString(args?.category) || undefined,
               nodeIdPath: asString(args?.nodeIdPath) || undefined,
@@ -234,7 +272,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
               costs: costRows,
               outputRoot,
               dataDir,
-            });
+            }));
             return { ...result, outputRoot };
           } catch (error) {
             const code = typeof error?.code === 'string' ? error.code : 'SELECT_FAILED';
@@ -397,6 +435,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
         const offers = [];
         const profit = [];
         const warnings = [];
+        await beginSession({ runId: 'live-sourcing-' + Date.now(), dir: join(outputRoot, LIVE_SESSION_DIR, 'live-sourcing-' + Date.now()), record: false, source: '1688 采价' });
         for (const sub of subMarkets) {
           let search;
           try {
@@ -513,6 +552,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           }
         }
 
+        await endSession({ status: 'done' });
         return {
           ok: true,
           offers,
@@ -599,7 +639,12 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           }
           const productLimit = asInt(args?.productLimit, 50, 10, 100);
           try {
-            const run = await selectCategoryWeb({
+            const run = await withLiveSession({
+              outputRoot,
+              record: args?.record === true,
+              fps: typeof args?.recordFps === 'number' ? args.recordFps : 1,
+              source: '采集采集表 · ' + (category || nodeIdPath || ''),
+            }, () => selectCategoryWeb({
               marketplace,
               category: category || undefined,
               nodeIdPath: nodeIdPath || undefined,
@@ -608,7 +653,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
               costs: [],
               outputRoot,
               dataDir,
-            });
+            }));
             const market = run.market || null;
             const products = (market && market.products) || [];
             const rows = productsToSelectionRows({

@@ -10,6 +10,7 @@
  *   - 依赖 macOS 的 Google Chrome + osascript；其它平台直接抛错（provider 自行降级）。
  */
 import { spawn } from 'node:child_process';
+import { push as livePush } from '../live.js';
 
 const APPLESCRIPT = `on run argv
   set verb to item 1 of argv
@@ -120,6 +121,7 @@ export async function listTabs() {
 export async function openTab(url) {
   const id = (await osa(['new', url])).trim();
   if (!id) throw new Error('无法打开标签页: ' + url);
+  livePush({ phase: 'open', level: 'info', message: '打开标签页', url, tabId: id });
   return id;
 }
 
@@ -132,6 +134,7 @@ export async function openTab(url) {
  */
 export async function focusTab(tabId) {
   const out = await osa(['focus', tabId], 30_000);
+  livePush({ phase: 'focus', level: 'info', message: '切换到前台标签页（扩展需要前台才渲染）', tabId });
   return String(out || '').trim();
 }
 

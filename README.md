@@ -17,6 +17,20 @@
 
 ---
 
+## v0.4.0：实时取数过程 + 录屏
+
+- 新增 **实时取数过程**：插件驱动浏览器时，面板实时显示「当前在读哪个页面、读到第几步、抓到几行」，事件流写入 `live/snapshot.json` + `live/events.ndjson`，面板每 1.5 秒轮询。
+- 新增 **录屏**（默认关闭，需显式 `record: true`）：只截 **Chrome 窗口区域**（不截整屏），帧序列存 `frames/`，ffmpeg 合成 `recording.mp4` 放在运行目录里，面板可直接播放。
+- 录屏失败（没给「屏幕录制」权限 / Chrome 不在前台）时**自动降级**为「只有事件流」，不中断取数。
+- 新增 `host/live.js`（实时会话）与 `host/recorder.js`（区域截图 + 视频合成）；`host/web/chrome.js`、卖家精灵网页链路、1688 采价都接入事件。
+- 新增接口 `GET /amazon-research/api/live/session`；运行目录允许读 `live/*` 与 `recording.mp4`。
+
+```json
+{ "action": "collect", "nodeIdPath": "...", "record": true, "recordFps": 1 }
+```
+
+> 隐私：录屏只覆盖插件驱动期间的前台 Chrome 窗口区域；录屏文件落在你的输出目录里，请自行保管。
+
 ## v0.3.5：自动采集（action=collect）+ 修好卖家精灵网页解析
 
 - **修好「查竞品」解析器**：卖家精灵页面改版后数据行从 22 列变成 17 列，旧代码硬编码 `tds.length !== 22` 把每一行都跳过 → **抓到 0 个父体**（这就是很多「未知」的根源）。现在改成表头驱动，页面再改列序也不会整页失配。

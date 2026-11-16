@@ -14,6 +14,7 @@
  * 所有返回都带 fetchedAt 与 source（页面 URL），便于报告溯源。
  */
 import { readFile } from 'node:fs/promises';
+import { push as livePush, pushRows as livePushRows } from '../live.js';
 import { fileURLToPath } from 'node:url';
 import { listTabs, openTab, runJs, runJson, waitFor, closeTab } from './chrome.js';
 
@@ -91,7 +92,9 @@ export async function fetchMarketList({ keyword, nodeIdPath, limit = 50, marketp
     await runSnippet(tabId, 'filter-market.js');
     await new Promise((resolve) => setTimeout(resolve, 7000));
 
+    livePush({ phase: 'market-list', level: 'info', message: '读取选市场页细分市场列表', url: MARKET_LIST_URL + marketplace, tabId });
     const list = await runSnippet(tabId, 'market-rows.js');
+    livePushRows('market-list', Array.isArray(list) ? list.slice(0, 3) : [], { message: '细分市场列表 ' + (Array.isArray(list) ? list.length : 0) + ' 行', url: MARKET_LIST_URL + marketplace, tabId });
     const rows = (Array.isArray(list) ? list : []).slice(0, limit).map((row) => {
       const conc = row.concentration || '';
       const fulfill = row.fulfillment || '';
@@ -186,6 +189,7 @@ export async function fetchTopProducts({ nodeIdPath, limit = 50, log = () => {} 
         added += 1;
       }
       log('查竞品第 ' + page + ' 页：' + list.length + ' 行，新增 ' + added + ' 个 ASIN');
+      livePushRows('competitors', list.slice(0, 3), { message: '查竞品第 ' + page + ' 页：' + list.length + ' 行，新增 ' + added + ' 个 ASIN', url, tabId });
       if (added === 0) break;
       url = page === 1 ? baseUrl : baseUrl + '&page=' + page;
     } finally {

@@ -212,6 +212,29 @@ test('体检落盘：report.md 含四途径、十维、否决、差异化与追�
   }
 });
 
+test('实时会话：事件落盘 + 快照可读', async () => {
+  const { beginSession, endSession, push, readLiveSnapshot } = await import('../host/live.js');
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'dsr-live-'));
+  try {
+    const begun = await beginSession({ runId: 'live-test', dir, record: false, source: '单测' });
+    assert.equal(begun.ok, true);
+    push({ phase: 'open', message: '打开标签页', url: 'https://example.com' });
+    const ended = await endSession({ status: 'done', message: '结束' });
+    assert.equal(ended.ok, true);
+    assert.ok(ended.dir);
+    const snapshot = await readLiveSnapshot(dir);
+    assert.equal(snapshot.status, 'done');
+    assert.ok(snapshot.events.length >= 2);
+    assert.equal(snapshot.events[0].phase, 'start');
+    assert.ok(snapshot.events.some((item) => item.url === 'https://example.com'));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('采集转换：重量/尺寸解析 + 类目聚合 + 新品占比口径', () => {
   assert.equal(parseWeightG('15.2 pounds'), 6895);
   assert.equal(parseWeightG('11.3 ounces'), 320);

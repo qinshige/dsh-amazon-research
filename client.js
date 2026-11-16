@@ -142,6 +142,9 @@ window.__ModuleLoader__.load({
       'detail.total': '总分 {total} / {max}',
       'detail.normalized': '归一化 {value} / 100',
       'detail.artifacts': '产物文件',
+      'detail.live': '实时取数过程',
+      'detail.liveRunning': '正在取数',
+      'detail.liveVideo': '打开录屏 recording.mp4 ↗',
       'detail.noArtifacts': '没有登记产物文件。',
       'detail.artifactsHint': '产物已写入运行目录；点击文件名可在新标签页打开（markdown / csv 为原文）。',
       'detail.openFile': '打开 {name}',
@@ -252,6 +255,9 @@ window.__ModuleLoader__.load({
       'detail.total': 'Total {total} / {max}',
       'detail.normalized': 'Normalized {value} / 100',
       'detail.artifacts': 'Artifacts',
+      'detail.live': 'Live run',
+      'detail.liveRunning': 'running',
+      'detail.liveVideo': 'Open recording.mp4 ↗',
       'detail.noArtifacts': 'No artifacts recorded.',
       'detail.artifactsHint': 'Artifacts are written to the run directory; click a file name to open it in a new tab (markdown / csv as raw text).',
       'detail.openFile': 'Open {name}',
@@ -1559,6 +1565,101 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function LiveCard(props) {
+      const runId = isString(props.runId) ? props.runId : '';
+      const [snapshot, setSnapshot] = React.useState(null);
+      const [active, setActive] = React.useState(false);
+      const [tick, setTick] = React.useState(0);
+
+      React.useEffect(() => {
+        const timer = setInterval(() => setTick((value) => value + 1), 1500);
+        return () => clearInterval(timer);
+      }, []);
+
+      React.useEffect(() => {
+        let alive = true;
+        request('live/session')
+          .then((data) => {
+            if (alive) setActive(Boolean(data && data.session && data.session.runId));
+          })
+          .catch(() => {
+            if (alive) setActive(false);
+          });
+        return () => {
+          alive = false;
+        };
+      }, [tick]);
+
+      React.useEffect(() => {
+        let alive = true;
+        if (runId === '') return () => {
+          alive = false;
+        };
+        request('runs/' + encodeURIComponent(runId) + '/file?name=' + encodeURIComponent('live/snapshot.json'))
+          .then((data) => {
+            if (alive) setSnapshot(isObject(data) ? data : null);
+          })
+          .catch(() => {
+            if (alive) setSnapshot(null);
+          });
+        return () => {
+          alive = false;
+        };
+      }, [runId, tick]);
+
+      const events = snapshot && Array.isArray(snapshot.events) ? snapshot.events : [];
+      const frameUrl = runId === '' ? '' : new URL('runs/' + encodeURIComponent(runId) + '/file?name=' + encodeURIComponent('live/frame.jpg'), API_BASE).toString() + '&t=' + tick;
+      const videoUrl = runId === '' ? '' : new URL('runs/' + encodeURIComponent(runId) + '/file?name=' + encodeURIComponent('recording.mp4'), API_BASE).toString();
+      const hasVideo = (snapshot && snapshot.frames > 0) || events.some((item) => String(item.message || '').indexOf('recording.mp4') >= 0);
+
+      if (!active && events.length === 0) return null;
+      return h(
+        Card,
+        null,
+        h(SectionHead, {
+          title: t('detail.live'),
+          icon: h(IconSliders, { size: 14 }),
+          extra: active ? h(Badge, { tone: T.success }, t('detail.liveRunning')) : null
+        }),
+        h(
+          'div',
+          { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
+          h(
+            'div',
+            { style: { display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' } },
+            h('img', {
+              src: frameUrl,
+              alt: 'live frame',
+              style: {
+                width: '100%',
+                maxWidth: 460,
+                borderRadius: 8,
+                border: '1px solid ' + T.borderL1,
+                background: T.bgLayer2
+              }
+            }),
+            h(
+              'div',
+              { style: { flex: '1 1 220px', minWidth: 200, display: 'flex', flexDirection: 'column', gap: 6 } },
+              h(
+                'ul',
+                { style: { ...S.listReset, maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 } },
+                ...events.slice(-40).map((item, index) => h(
+                  'li',
+                  { key: index, style: { fontSize: 11.5, lineHeight: 1.6, color: item.level === 'warn' ? T.warn : T.labelSecondary } },
+                  h('span', { style: { ...S.mono, marginRight: 6 } }, String(item.phase || 'step')),
+                  String(item.message || ''),
+                  item.url ? h('div', { style: { ...S.tiny, wordBreak: 'break-all' } }, String(item.url)) : null
+                ))
+              ),
+              hasVideo
+                ? h('a', { href: videoUrl, target: '_blank', rel: 'noreferrer', style: { ...S.tiny, color: T.label, textDecoration: 'underline' } }, t('detail.liveVideo'))
+                : null
+            )
+          )
+        )
+      );
+    }
     function KeyValueCard(props) {
       const data = isObject(props.data) ? props.data : null;
       const extra = isObject(props.extra) ? props.extra : null;
@@ -1828,6 +1929,7 @@ window.__ModuleLoader__.load({
           )
         ),
         h(ScoreCard, { score: scores }),
+        h(LiveCard, { runId: pickString(detail.runId, runId) }),
         h(ReportCard, { reportMd: reportMd }),
         h(ArtifactsCard, { artifacts: artifacts, runId: pickString(detail.runId, runId) }),
         params === null && usage === null ? null : h(KeyValueCard, { title: t('detail.params'), data: params, extra: usage }),
