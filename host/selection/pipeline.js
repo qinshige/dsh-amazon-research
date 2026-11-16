@@ -4,6 +4,7 @@
  * 选品体检流水线：候选行（CSV / 数组）→ 十维体检 → 差异化 → 报告与产物落盘。
  * 不联网、不消耗数据服务额度；采购价、榜单数字必须由用户或其它工具提供。
  */
+import { createHash } from 'node:crypto';
 import { createRun, writeArtifacts } from '../runs.js';
 import { buildSelectionPlan } from './channels.js';
 import { evaluateBatch } from './kpis.js';
@@ -62,6 +63,20 @@ export function parseCsv(text) {
   });
 }
 
+/** 稳定序列化（对象键排序），保证同一份输入得到同一个指纹。 */
+function stableStringify(value) {
+  if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + stableStringify(value[key])).join(',') + '}';
+  }
+  return JSON.stringify(value === undefined ? null : value);
+}
+
+/** 输入指纹：sha256(排序后的输入行)，用于复核报告是否对应同一批数据。 */
+export function inputFingerprint(rows) {
+  return 'sha256:' + createHash('sha256').update(stableStringify(rows)).digest('hex');
+}
+
 function slimResult(item) {
   return {
     asin: item.asin,
@@ -117,6 +132,7 @@ export async function screenCandidates({
   }
 
   const generatedAt = new Date().toISOString();
+  const inputHash = inputFingerprint(list);
   const site = String(marketplace || 'US').toUpperCase();
   const planData = plan || buildSelectionPlan({ marketplace: site });
   const run = await createRun({
@@ -128,6 +144,7 @@ export async function screenCandidates({
     registryDir: dataDir,
   });
 
+  const artifactNames = ['manifest.json', 'provenance.json', 'selection-scores.json', 'report.md', 'selection.csv'];
   const reportMd = renderSelectionReport({
     title,
     marketplace: site,
@@ -136,6 +153,9 @@ export async function screenCandidates({
     plan: planData,
     source,
     fx,
+    runId: run.runId,
+    inputHash,
+    artifacts: artifactNames.map((name) => ({ name })),
   });
   const manifest = {
     runId: run.runId,
@@ -152,13 +172,43 @@ export async function screenCandidates({
     avgMargin: batch.summary.avgMargin,
     nodeIdPath: planData?.nodeIdPath || '',
     category: planData?.category || '',
+    inputHash,
+    engine: 'selection-v1',
   };
   const scores = {
+    inputHash,
     summary: batch.summary,
     results: batch.results.map(slimResult),
   };
+  const provenance = {
+    runId: run.runId,
+    generatedAt,
+    engine: 'selection-v1',
+    title,
+    marketplace: site,
+    source,
+    fx,
+    inputHash,
+    inputCount: list.length,
+    // 原始输入行原样保存：报告里任何数字都可以回到这里核对。
+    inputs: list,
+    results: batch.results.map((item) => ({
+      asin: item.asin,
+      tier: item.tier,
+      margin: item.margin,
+      hitRate: item.hitRate,
+      judgedCount: item.judgedCount,
+      checks: item.checks,
+      vetoes: item.vetoes,
+      unknown: item.unknown,
+      provenance: item.provenance,
+      inputs: item.inputs,
+      profit: item.profit,
+    })),
+  };
   const artifacts = await writeArtifacts(run, {
     'manifest.json': manifest,
+    'provenance.json': provenance,
     // 不写 scores.json：面板会把「五维评分」当成类目评分渲染，选品批次没有总分。
     'selection-scores.json': scores,
     'report.md': reportMd,
@@ -183,5 +233,6 @@ export async function screenCandidates({
     })),
     artifacts,
     generatedAt,
+    inputHash,
   };
 }

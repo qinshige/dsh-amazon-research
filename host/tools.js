@@ -525,7 +525,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
       description: [
         '选品全流程（四途径 → 九策略 → 十维 → 差异化）：action=plan 出路线图，action=screen 对候选 ASIN 做十维体检、一票否决、分档与差异化建议。',
         'action=plan：按站点/类目生成站内 7 个榜单入口（Best Sellers / New Releases / Movers / Most Wished For / Gift Ideas / Deals / 热搜词）、站外与软件渠道、九种选品策略的适用性与步骤、十维采集清单。免费，不取数。',
-        'action=screen：接收采集表（rows 数组或 csv 文本，中英文列名均可），逐品输出 达标/警戒/不达标/未知、一票否决、一档/二档/三档/待复核/淘汰、全成本净利率、敏感性与差异化方向，并落盘 report.md / selection.csv。免费，不消耗数据服务额度。',
+        'action=screen：接收采集表（rows 数组或 csv 文本，中英文列名均可），逐品输出 达标/警戒/不达标/未知、一票否决、一档/二档/三档/待复核/淘汰、全成本净利率、敏感性与差异化方向。落盘 report.md / selection.csv / provenance.json（原始输入 + SHA-256 输入指纹 + 逐项判定），报告第八章给出每个 KPI 的输入列与来源。免费，不消耗数据服务额度。',
         '纪律：缺失字段记「未知」不计入命中率；采购价必须来自 1688 真实报价；榜单数字必须真实抓取，禁止用记忆补。',
       ].join('\n'),
       parameters: {

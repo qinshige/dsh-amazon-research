@@ -7,6 +7,32 @@
 
 const TIER_ORDER = ['一档', '二档', '三档', '待复核', '淘汰'];
 
+/** KPI → 输入列 → 证据类型：保证报告里每个数字都能追到采集表的一列。 */
+const KPI_SOURCES = [
+  ['市场容量（Top100 月销）', 'Top100月销', '采集值', '类目 Top100 月销，需备注数据源与月份'],
+  ['品牌集中度', '品牌集中度%', '采集值', 'Top3 品牌销量占比'],
+  ['类目前十评价数', '前10评价数', '采集值', '类目前 10 名评论数，注明采集口径'],
+  ['新品占比', '新品占比%', '采集值', '近 6/12 个月上架占比，注明窗口'],
+  ['产品趋势', '趋势', '人工判断', 'Google Trends / ABA 结论，需写来源'],
+  ['ABA 排名', 'ABA排名', '采集值', '关键词 ABA 排名'],
+  ['售价区间', '售价USD', '采集值', '当前售价，注明抓取时间'],
+  ['采购成本占售价', '采购价CNY + 售价USD + 汇率', '计算值', '(采购价 ÷ 汇率) ÷ 售价'],
+  ['评分星级', '评分', '采集值', '页面星级'],
+  ['差评可解决性', '差评痛点', '人工判断', '3 星及以下评论归纳，附链接/条数'],
+  ['季节性', '季节性', '人工判断', '历史趋势 / 节日属性'],
+  ['退货率', '退货率', '采集值', '类目或竞品退货率，注明口径'],
+  ['变体数', '变体数', '采集值', 'Listing 变体数量'],
+  ['物流占售价', 'FBA配送费USD + 头程USD（或件重） + 售价USD', '计算值', '(头程 + FBA) ÷ 售价'],
+  ['易碎 / 抛货', '易碎 + 重量g + 长/宽/高cm', '采集值', '包装形态与体积重'],
+  ['大件抛货', '重量g', '计算值', '> 2000g 触发；体积重按 长×宽×高÷6000'],
+  ['供应商数量', '供应商数', '人工判断', '1688/工厂确认，至少 2 家'],
+  ['专利/商标风险', '专利风险', '人工判断', 'WIPO/商标检索结论，附检索号'],
+  ['认证要求', '认证', '人工判断', 'CPC / EN71 / UL / FDA 等证书状态'],
+  ['净利率', '售价USD + 采购价CNY + 件重g + FBA + 广告占比 + 退货率 + 佣金占比 + 头程USD + 其他USD', '计算值', '见 8.4 与默认参数'],
+  ['广告占售价', '广告占比', '采集值 / 估算', '新卖家可按 12%–15% 复核'],
+  ['类目层级', '类目路径', '采集值', '按 > 或 / 分隔的层级数'],
+];
+
 function num(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -93,7 +119,7 @@ function planSection(plan) {
  * 渲染选品体检报告。
  * @param {{title:string, marketplace:string, generatedAt:string, batch:object, plan?:object, source?:string, fx?:number}} params
  */
-export function renderSelectionReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, plan = null, source = '手动/采集表', fx = 7.1 } = {}) {
+export function renderSelectionReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, plan = null, source = '手动/采集表', fx = 7.1, runId = '', inputHash = '', artifacts = [] } = {}) {
   const results = batch?.results || [];
   const summary = batch?.summary || { tiers: {}, commonGaps: [], vetoed: 0, needsReview: [], avgMargin: null };
   const lines = [];
@@ -101,6 +127,7 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
 
   push('# ' + title + ' 选品体检报告（' + marketplace + '）', '');
   push('> 生成时间：' + (generatedAt || '—') + ' ｜ 候选数：' + results.length + ' ｜ 数据来源：' + source + ' ｜ 汇率：1 USD = ' + fx + ' CNY', '');
+  push('> 运行 ID：' + (runId || '—') + ' ｜ 输入指纹：' + (inputHash || '—'), '');
   push('---', '');
 
   // 一、结论
@@ -231,17 +258,61 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
   push('- **类目**：一级类目只作场景，必须下钻三、四级；受限/危险品类目先查平台规则。');
   push('');
 
-  // 八、数据来源与待复核
-  push('## 八、数据来源与待复核', '');
-  push('### 8.1 数据来源', '');
+  // 八、数据来源、追溯与待复核
+  push('## 八、数据来源、追溯与待复核', '');
+  push('### 8.1 追溯信息', '');
   push(...table(['项目', '值'], [
+    ['运行 ID', runId || '—'],
+    ['输入指纹（SHA-256）', inputHash || '—'],
+    ['候选数', String(results.length)],
     ['候选来源', source],
     ['站点', marketplace],
     ['生成时间', generatedAt || '—'],
     ['汇率', '1 USD = ' + fx + ' CNY（估算值，按实际汇率改）'],
+    ['产物', artifacts.length ? artifacts.map((item) => item.name).join('、') : 'report.md、selection.csv、selection-scores.json、provenance.json、manifest.json'],
   ]));
   push('');
-  push('### 8.2 待复核项', '');
+  push('> 同一份采集表 + 同一汇率会得到同一个输入指纹，可用它核对报告是否被改过；原始输入行与逐项判定另存 provenance.json。', '');
+  push('### 8.2 逐品来源', '');
+  push(...table(['ASIN', '商品链接', '1688 链接', '采集时间', '来源标注', '缺失字段'], results.map((item) => {
+    const prov = item.provenance || {};
+    return [
+      item.asin || '—',
+      prov.listingUrl || '未提供',
+      prov.offerUrl || '未提供',
+      prov.collectedAt || '未提供',
+      prov.source || '未标注',
+      item.unknown.length ? item.unknown.join('、') : '—',
+    ];
+  })));
+  push('');
+  push('> 「未提供」表示采集表里没有填对应列；没有链接的记录无法回溯到原页面，只能作为内部线索，不能当成已核证据。', '');
+  push('### 8.3 指标取数列（每个数字追到输入列）', '');
+  push(...table(['KPI', '输入列', '证据类型', '口径说明'], KPI_SOURCES));
+  push('');
+  push('> 报告里的 KPI 数值都来自上表「输入列」；列为空或没有该列时显示「未知」，不参与命中率分母，不用常识补齐。', '');
+  push('### 8.4 净利率计算输入', '');
+  const traceRows = results.filter((item) => item.profit);
+  if (traceRows.length === 0) {
+    push('（没有可测算的利润数据：缺采购价或售价，净利率记为「未知」。）', '');
+  } else {
+    push(...table(['ASIN', '售价', '采购¥', '件重g', 'FBA$', '广告%', '退货%', '佣金%', '头程$', '其它$', '净利率'], traceRows.map((item) => [
+      item.asin || '—',
+      money(item.inputs?.priceUSD ?? item.priceUSD),
+      item.inputs?.purchaseCNY ?? '—',
+      item.inputs?.weightG === null || item.inputs?.weightG === undefined ? '—' : Math.round(item.inputs.weightG),
+      money(item.profit.fbaFeeUSD) + (item.profit.fbaEstimated ? '（估）' : ''),
+      pct(item.inputs?.adPct),
+      pct(item.inputs?.returnPct),
+      pct(item.inputs?.commissionPct),
+      money(item.inputs?.firstMileUSD),
+      money(item.inputs?.otherUSD),
+      pct(item.profit.netMargin, 1),
+    ])));
+    push('');
+    push('> 公式：净利率 =（售价 − 采购 − 头程 − FBA − 佣金 − 广告 − 退货 − 其它）÷ 售价。采购价按汇率折算；FBA 未填时按件重档位估算（标「估」）；广告 / 退货 / 佣金未填时用默认 10% / 5% / 15%。', '');
+  }
+  push('### 8.5 待复核项', '');
   if (summary.needsReview.length === 0 && summary.commonGaps.length === 0) {
     push('无。');
   } else {
@@ -255,7 +326,7 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
     }
   }
   push('');
-  push('### 8.3 免责声明', '');
+  push('### 8.6 免责声明', '');
   push('- 本报告由 dsh-amazon-research 规则引擎生成，只做初筛与风险提示，不构成投资或经营建议。');
   push('- 缺失字段一律按「未知」处理，不参与命中率分母；未取到的数字不要当成 0。');
   push('- 专利、认证、类目审核必须人工复核，本工具不做法律定性。');
@@ -269,6 +340,7 @@ export function renderSelectionCsv(batch) {
   const headers = [
     '档位', 'ASIN', '商品名称', '售价USD', '净利率', 'KPI命中率', '可判定项数',
     '否决项', '待复核项', '差异化方向', '采购价CNY', '总成本USD', '净利USD', '物流占比',
+    '商品链接', '1688链接', '采集时间', '来源标注',
   ];
   const rows = (batch?.results || []).map((item) => [
     item.tier,
@@ -285,6 +357,10 @@ export function renderSelectionCsv(batch) {
     item.profit ? item.profit.totalCostUSD.toFixed(2) : '',
     item.profit ? item.profit.netProfitUSD.toFixed(2) : '',
     item.profit ? (item.profit.logisticsRatio * 100).toFixed(1) + '%' : '',
+    item.provenance?.listingUrl || '',
+    item.provenance?.offerUrl || '',
+    item.provenance?.collectedAt || '',
+    item.provenance?.source || '',
   ]);
   const escape = (value) => {
     const text = String(value ?? '');

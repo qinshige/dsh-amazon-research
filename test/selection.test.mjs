@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { evaluateBatch, evaluateCandidate, normalizeCandidate } from '../host/selection/kpis.js';
 import { buildSelectionPlan, amazonDomain } from '../host/selection/channels.js';
 import { suggestDifferentiation } from '../host/selection/differentiate.js';
-import { parseCsv, screenCandidates } from '../host/selection/pipeline.js';
+import { inputFingerprint, parseCsv, screenCandidates } from '../host/selection/pipeline.js';
 import { sensitivity } from '../host/selection/report.js';
 import { scoreMarket } from '../host/scoring.js';
 import { renderCategoryReport } from '../host/report.js';
@@ -153,12 +153,28 @@ test('敏感性：三个场景都给出净利率', () => {
   assert.ok(sense.priceDown < result.margin);
 });
 
-test('体检落盘：report.md 含四途径、十维、否决与差异化', async () => {
+test('输入指纹：键顺序不同但内容相同 → 同一指纹', () => {
+  const a = inputFingerprint([{ ASIN: 'B0A', 售价USD: 20 }]);
+  const b = inputFingerprint([{ 售价USD: 20, ASIN: 'B0A' }]);
+  assert.equal(a, b);
+  assert.match(a, /^sha256:[0-9a-f]{64}$/);
+  assert.notEqual(a, inputFingerprint([{ ASIN: 'B0A', 售价USD: 21 }]));
+});
+
+test('体检落盘：report.md 含四途径、十维、否决、差异化与追溯', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'dsr-selection-'));
   try {
-    const out = await screenCandidates({ rows: [baseRow, { ...baseRow, ASIN: 'B0BAD', '品牌集中度%': 85 }], outputRoot: dir, title: 'Vases 测试' });
+    const out = await screenCandidates({
+      rows: [
+        { ...baseRow, 链接: 'https://www.amazon.com/dp/B0TEST0001', '1688链接': 'https://detail.1688.com/offer/1.html', '采集时间': '2026-11-16T12:00:00Z', 来源: 'BS 榜' },
+        { ...baseRow, ASIN: 'B0BAD', '品牌集中度%': 85 },
+      ],
+      outputRoot: dir,
+      title: 'Vases 测试',
+    });
     assert.equal(out.count, 2);
     assert.ok(out.runId);
+    assert.match(out.inputHash, /^sha256:[0-9a-f]{64}$/);
     const report = await readFile(join(out.dir, 'report.md'), 'utf8');
     assert.match(report, /## 一、结论摘要/);
     assert.match(report, /## 二、四途径执行路线/);
@@ -167,11 +183,24 @@ test('体检落盘：report.md 含四途径、十维、否决与差异化', asyn
     assert.match(report, /## 五、差异化方向/);
     assert.match(report, /## 六、利润与敏感性/);
     assert.match(report, /## 七、合规与风控清单/);
+    assert.match(report, /8\.1 追溯信息/);
+    assert.match(report, /8\.2 逐品来源/);
+    assert.match(report, /8\.3 指标取数列/);
+    assert.match(report, /8\.4 净利率计算输入/);
+    assert.match(report, /输入指纹/);
+    assert.match(report, /https:\/\/www\.amazon\.com\/dp\/B0TEST0001/);
     const csv = await readFile(join(out.dir, 'selection.csv'), 'utf8');
     assert.match(csv, /一档/);
     assert.match(csv, /淘汰/);
+    assert.match(csv, /amazon\.com\/dp\/B0TEST0001/);
     const manifest = JSON.parse(await readFile(join(out.dir, 'manifest.json'), 'utf8'));
     assert.equal(manifest.kind, 'selection');
+    assert.equal(manifest.inputHash, out.inputHash);
+    const provenance = JSON.parse(await readFile(join(out.dir, 'provenance.json'), 'utf8'));
+    assert.equal(provenance.inputHash, out.inputHash);
+    assert.equal(provenance.inputs.length, 2);
+    assert.equal(provenance.inputs[0]['1688链接'], 'https://detail.1688.com/offer/1.html');
+    assert.ok(provenance.results[0].checks.length > 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -17,6 +17,13 @@
 
 ---
 
+## v0.3.1：选品报告可追溯
+
+- `research_product_select`（action=screen）新增 `provenance.json`：原样保存输入行、逐项判定、SHA-256 输入指纹；`manifest.json` 同步记录指纹。
+- 报告第八章重写为追溯链：8.1 运行 ID/输入指纹、8.2 逐品链接与采集时间、8.3 每个 KPI 的输入列与证据类型、8.4 净利率计算输入。
+- `selection.csv` 增加商品链接、1688 链接、采集时间、来源标注四列。
+- README 新增「使用方法」与「数据可追溯」两节。
+
 ## v0.3.0：四途径 → 九策略 → 十维 → 差异化（选品全流程）
 
 - 新增工具 `research_product_select`：
@@ -100,7 +107,107 @@ node --check index.js && node --check client.js
 - `amazon-category-selection`：类目级五维评分与市场调研；
 - `amazon-product-selection`：四途径 → 九策略 → 十维 → 差异化的单品级选品全流程（含浏览器取数手册、KPI 否决清单、利润模型、合规入口）。
 
+## 使用方法
+
+### 1. 先确认数据源
+
+左侧栏「选品研究」→ 设置页填 SellerSprite Secret Key；网页链路则先在 Chrome 登录 www.sellersprite.com。然后调：
+
+    research_provider_status
+
+返回里看 providers[].configured 与 config.marketplace。
+
+### 2. 类目级：这个类目值不值得进
+
+    research_category_select {
+      "category": "vases",
+      "nodeIdPath": "11091801:11974521:8882489011",
+      "marketplace": "US",
+      "limit": 50
+    }
+
+MCP 链路消耗 9~11 次额度；返回 runId 与报告目录。报告含五维评分、大盘、集中度、价格带、风险与第九章选品落地。
+
+### 3. 单品级：四途径找品 → 十维体检
+
+先出路线图（免费）：
+
+    research_product_select {
+      "action": "plan",
+      "marketplace": "US",
+      "category": "vases",
+      "nodeIdPath": "11091801:11974521:8882489011"
+    }
+
+按返回的 7 个榜单入口抓候选，填采集表（模板：skills/amazon-product-selection/assets/selection-table-template.csv），再体检（免费）：
+
+    research_product_select {
+      "action": "screen",
+      "title": "Vases 候选",
+      "source": "BS 榜 / 竞品店铺",
+      "rows": [
+        {
+          "ASIN": "B0XXXXXXX",
+          "商品名称": "Ceramic Vase",
+          "链接": "https://www.amazon.com/dp/B0XXXXXXX",
+          "售价USD": 29.99,
+          "采购价CNY": 22,
+          "重量g": 180,
+          "类目路径": "Home & Kitchen > Home Décor > Vases",
+          "品牌集中度%": 35,
+          "前10评价数": 800,
+          "新品占比%": 15,
+          "评分": 4.5,
+          "变体数": 2,
+          "退货率": 5,
+          "广告占比": 10,
+          "采集时间": "2026-11-16T12:00:00Z",
+          "来源": "Best Sellers"
+        }
+      ]
+    }
+
+### 4. 采价与利润重算
+
+    research_unit_cost {
+      "subMarkets": [
+        { "name": "Ceramic Vase", "keyword": "ceramic vase", "avgPriceUSD": 29.99 }
+      ]
+    }
+
+采到 1688 详情页阶梯价后，把采购价、件重回填采集表，再跑一次 screen。
+
+### 5. 看历史报告
+
+    research_runs { "action": "list" }
+    research_runs { "action": "get", "runId": "20261116_Vases_US" }
+
+### 数据可追溯：每个数字怎么核
+
+每次运行是一个独立目录，产物固定：
+
+    <outDir>/<runId>/
+      manifest.json          运行元信息（runId、站点、时间、输入指纹）
+      provenance.json        原始输入行 + 逐项判定 + 输入指纹（新增）
+      selection-scores.json  分档、KPI、否决、差异化
+      report.md              中文报告
+      selection.csv          可直接回填的明细表
+
+报告第八章给出四条追溯链：
+
+| 小节 | 内容 | 用途 |
+| --- | --- | --- |
+| 8.1 追溯信息 | 运行 ID、输入指纹（SHA-256）、候选数、来源、汇率、产物清单 | 核对报告是否对应同一批输入 |
+| 8.2 逐品来源 | 每个 ASIN 的商品链接、1688 链接、采集时间、来源标注、缺失字段 | 回到原页面复核 |
+| 8.3 指标取数列 | 每个 KPI 来自哪一列、证据类型（采集值/计算值/人工判断） | 知道数字从哪来 |
+| 8.4 净利率计算输入 | 售价、采购价、件重、FBA、广告、退货、佣金、头程、其它 | 复算利润 |
+
+输入指纹规则：对输入行做键排序后 SHA-256；同一份采集表 + 同一汇率得到同一个指纹，改任一字段指纹就变。报告被改过、或换了数据，用指纹一比就知道。
+
+缺失字段的处理：一律写「未取到 / 未知」，不计入命中率分母，不按 0 处理，也不用行业常识补。估算值（FBA、头程、汇率、默认广告/退货率）在报告里单独标注「估」；采购价、件重等必须来自 1688 详情页或页面实测。
+
 ---
+
 
 ## 方法论
 
