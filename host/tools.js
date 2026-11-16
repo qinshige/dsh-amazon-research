@@ -179,8 +179,8 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
             },
           },
           outDir: { type: 'string', description: '报告输出根目录；建议传当前会话工作区下的 选品研究 目录（如 /path/to/workspace/选品研究）；不传则用插件配置的 outputRoot 或数据目录' },
-          record: { type: 'boolean', description: '是否录制浏览器操作过程（录 Chrome 窗口区域，不录整屏）。默认 false；录屏文件为 recording.mp4，实时事件流始终开启' },
-          recordFps: { type: 'number', description: '录屏帧率，默认 1 fps（2 可更流畅但文件更大）' },
+          record: { type: 'boolean', description: '是否实时显示浏览器页面（只截 Chrome 窗口区域，不截整屏、不产出视频文件）。默认 false；实时事件流始终开启' },
+          recordFps: { type: 'number', description: '实时画面刷新帧率，默认 2 fps（只保留最新一张，不落帧序列）' },
           provider: {
             type: 'string',
             enum: ['sellersprite', 'sellersprite-web', 'trendyol-web'],
@@ -261,7 +261,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
             const result = await withLiveSession({
               outputRoot,
               record: args?.record === true,
-              fps: typeof args?.recordFps === 'number' ? args.recordFps : 1,
+              fps: typeof args?.recordFps === 'number' ? args.recordFps : 2,
               source: '卖家精灵网页 · ' + (asString(args?.category) || asString(args?.nodeIdPath) || '类目'),
             }, () => selectCategoryWeb({
               marketplace,
@@ -642,7 +642,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
             const run = await withLiveSession({
               outputRoot,
               record: args?.record === true,
-              fps: typeof args?.recordFps === 'number' ? args.recordFps : 1,
+              fps: typeof args?.recordFps === 'number' ? args.recordFps : 2,
               source: '采集采集表 · ' + (category || nodeIdPath || ''),
             }, () => selectCategoryWeb({
               marketplace,

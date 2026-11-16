@@ -144,7 +144,7 @@ window.__ModuleLoader__.load({
       'detail.artifacts': '产物文件',
       'detail.live': '实时取数过程',
       'detail.liveRunning': '正在取数',
-      'detail.liveVideo': '打开录屏 recording.mp4 ↗',
+      'detail.liveFrames': '已刷新 {frames} 帧实时画面',
       'detail.noArtifacts': '没有登记产物文件。',
       'detail.artifactsHint': '产物已写入运行目录；点击文件名可在新标签页打开（markdown / csv 为原文）。',
       'detail.openFile': '打开 {name}',
@@ -257,7 +257,7 @@ window.__ModuleLoader__.load({
       'detail.artifacts': 'Artifacts',
       'detail.live': 'Live run',
       'detail.liveRunning': 'running',
-      'detail.liveVideo': 'Open recording.mp4 ↗',
+      'detail.liveFrames': '{frames} live frames refreshed',
       'detail.noArtifacts': 'No artifacts recorded.',
       'detail.artifactsHint': 'Artifacts are written to the run directory; click a file name to open it in a new tab (markdown / csv as raw text).',
       'detail.openFile': 'Open {name}',
@@ -1609,8 +1609,7 @@ window.__ModuleLoader__.load({
 
       const events = snapshot && Array.isArray(snapshot.events) ? snapshot.events : [];
       const frameUrl = runId === '' ? '' : new URL('runs/' + encodeURIComponent(runId) + '/file?name=' + encodeURIComponent('live/frame.jpg'), API_BASE).toString() + '&t=' + tick;
-      const videoUrl = runId === '' ? '' : new URL('runs/' + encodeURIComponent(runId) + '/file?name=' + encodeURIComponent('recording.mp4'), API_BASE).toString();
-      const hasVideo = (snapshot && snapshot.frames > 0) || events.some((item) => String(item.message || '').indexOf('recording.mp4') >= 0);
+      const frames = snapshot && typeof snapshot.frames === 'number' ? snapshot.frames : 0;
 
       if (!active && events.length === 0) return null;
       return h(
@@ -1652,8 +1651,8 @@ window.__ModuleLoader__.load({
                   item.url ? h('div', { style: { ...S.tiny, wordBreak: 'break-all' } }, String(item.url)) : null
                 ))
               ),
-              hasVideo
-                ? h('a', { href: videoUrl, target: '_blank', rel: 'noreferrer', style: { ...S.tiny, color: T.label, textDecoration: 'underline' } }, t('detail.liveVideo'))
+              frames > 0
+                ? h('span', { style: S.tiny }, t('detail.liveFrames', { frames: frames }))
                 : null
             )
           )

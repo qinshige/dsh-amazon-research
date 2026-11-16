@@ -44,7 +44,7 @@ export function currentSession() {
  * 开始一个实时会话。
  * @param {{runId:string, dir:string, record?:boolean, fps?:number, maxFrames?:number, source?:string}} input
  */
-export async function beginSession({ runId, dir, record = false, fps = 1, maxFrames = 900, source = '' } = {}) {
+export async function beginSession({ runId, dir, record = false, fps = 2, source = '' } = {}) {
   await endSession();
   const liveDir = join(dir, 'live');
   await mkdir(liveDir, { recursive: true });
@@ -63,12 +63,12 @@ export async function beginSession({ runId, dir, record = false, fps = 1, maxFra
     status: 'running',
   };
   if (record) {
-    const recorder = new Recorder({ dir, fps, maxFrames });
+    const recorder = new Recorder({ dir, fps });
     const started = await recorder.start();
     session.recorder = started.ok ? recorder : null;
     session.recordError = started.ok ? null : started.reason;
     if (started.ok) {
-      push({ phase: 'record', level: 'info', message: '开始录制 Chrome 窗口（' + fps + ' fps）' });
+      push({ phase: 'record', level: 'info', message: '开始实时显示 Chrome 窗口（' + fps + ' fps，不产出视频文件）' });
     } else {
       push({ phase: 'record', level: 'warn', message: '屏幕录制不可用，仅保留实时事件流：' + started.reason });
     }
@@ -145,21 +145,19 @@ export async function endSession({ status = 'done', message = '' } = {}) {
   const state = session;
   session = null;
   state.status = status;
-  let video = null;
+  let frames = 0;
   if (state.recorder) {
     const stopped = await state.recorder.stop();
-    video = stopped.video || null;
+    frames = stopped.frames || 0;
     pushInto(state, {
       phase: 'record',
       level: 'info',
-      message: video
-        ? '录制结束：' + stopped.frames + ' 帧 → ' + video
-        : '录制结束：' + stopped.frames + ' 帧（未合成视频）',
+      message: '实时画面结束：刷新 ' + frames + ' 帧（不产出视频文件）',
     });
   }
   if (message) pushInto(state, { phase: status, level: 'info', message });
   await persist(state);
-  return { ok: true, recording: Boolean(video), video, frames: state.recorder ? state.recorder.count : 0, dir: state.liveDir, runId: state.runId };
+  return { ok: true, recording: Boolean(state.recorder), frames, dir: state.liveDir, runId: state.runId };
 }
 
 /** 把实时会话产物复制进某个运行目录（面板按 runId 找）。 */
@@ -168,13 +166,6 @@ export async function attachToRun(runDir, liveDir) {
   if (!source || !runDir) return false;
   try {
     await cp(source, join(runDir, 'live'), { recursive: true, force: true });
-    // 录屏成片也在会话目录里，一并复制到运行目录，面板按 runId 就能播
-    const video = join(source, '..', 'recording.mp4');
-    try {
-      await cp(video, join(runDir, 'recording.mp4'), { force: true });
-    } catch {
-      /* 没有视频就跳过 */
-    }
     return true;
   } catch {
     return false;

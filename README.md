@@ -17,19 +17,26 @@
 
 ---
 
+## v0.4.1：实时画面（不产出视频文件）
+
+- 按你的要求改成**只做实时预览**：插件运行期间实时显示 Chrome 窗口面板，**不落帧序列、不调 ffmpeg、不产出 mp4**。
+- 只保留最新一张 `live/frame.jpg`（覆盖写，sips 压到 1100px 宽，约 130KB），磁盘占用恒定。
+- 默认刷新 2 fps（`recordFps` 可调）；录屏权限不足时自动退化为「只有事件流」，不中断取数。
+- 面板「实时取数过程」卡片去掉视频链接，改显示已刷新帧数。
+
 ## v0.4.0：实时取数过程 + 录屏
 
 - 新增 **实时取数过程**：插件驱动浏览器时，面板实时显示「当前在读哪个页面、读到第几步、抓到几行」，事件流写入 `live/snapshot.json` + `live/events.ndjson`，面板每 1.5 秒轮询。
-- 新增 **录屏**（默认关闭，需显式 `record: true`）：只截 **Chrome 窗口区域**（不截整屏），帧序列存 `frames/`，ffmpeg 合成 `recording.mp4` 放在运行目录里，面板可直接播放。
+- 新增 **实时画面**（默认关闭，需显式 `record: true`）：只截 **Chrome 窗口区域**（不截整屏），只保留最新一张 `live/frame.jpg`，**不产出视频文件**。
 - 录屏失败（没给「屏幕录制」权限 / Chrome 不在前台）时**自动降级**为「只有事件流」，不中断取数。
-- 新增 `host/live.js`（实时会话）与 `host/recorder.js`（区域截图 + 视频合成）；`host/web/chrome.js`、卖家精灵网页链路、1688 采价都接入事件。
-- 新增接口 `GET /amazon-research/api/live/session`；运行目录允许读 `live/*` 与 `recording.mp4`。
+- 新增 `host/live.js`（实时会话）与 `host/recorder.js`（区域实时截图）；`host/web/chrome.js`、卖家精灵网页链路、1688 采价都接入事件。
+- 新增接口 `GET /amazon-research/api/live/session`；运行目录允许读 `live/*`。
 
 ```json
-{ "action": "collect", "nodeIdPath": "...", "record": true, "recordFps": 1 }
+{ "action": "collect", "nodeIdPath": "...", "record": true, "recordFps": 2 }
 ```
 
-> 隐私：录屏只覆盖插件驱动期间的前台 Chrome 窗口区域；录屏文件落在你的输出目录里，请自行保管。
+> 隐私：实时画面只覆盖插件运行期间的前台 Chrome 窗口区域，不落视频、不留帧序列。
 
 ## v0.3.5：自动采集（action=collect）+ 修好卖家精灵网页解析
 
