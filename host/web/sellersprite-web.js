@@ -66,6 +66,20 @@ const split = (text) => String(text ?? '').trim().split(/\s+/).filter(Boolean);
  * @param {{keyword?:string, nodeIdPath?:string, limit?:number, log?:Function}} opts
  */
 export async function fetchMarketList({ keyword, nodeIdPath, limit = 50, marketplace = 'US', log = () => {} } = {}) {
+  // 供本模块内部使用：按 nodeIdPath 取类目名（筛选框只认类目名，不认节点路径）
+  const fetchNodeLabel = async (path) => {
+    const url = NODE_URL.replace('{nodeIdPath}', path);
+    const tab = await openTab(url);
+    try {
+      await waitFor(tab, 'document.body.innerText.indexOf("市场名称") >= 0', { timeout: 30 });
+      const data = await runSnippet(tab, 'node-report.js');
+      return (data && (data.leafName || data.marketName)) || null;
+    } catch {
+      return null;
+    } finally {
+      await closeTab(tab);
+    }
+  };
   const { tabId, owned } = await ensureTab(log);
   try {
     const probe = await runSnippet(tabId, 'login-probe.js');
@@ -74,7 +88,9 @@ export async function fetchMarketList({ keyword, nodeIdPath, limit = 50, marketp
       err.code = 'NOT_LOGGED_IN';
       throw err;
     }
-    if (keyword) {
+    // 只传 nodeIdPath 也要走筛选流程：否则列表停在默认 Top50，找不到该节点，
+    // 类目级结构（卖家类型 / 退货率）与全量月销都取不到，只能退回样本口径（实测）。
+    if (keyword || nodeIdPath) {
       // 复用标签页可能停在其它页面（类目报告/查竞品），先回到选市场页
       const current = await runJson(tabId, 'location.href', { strict: false }).catch(() => '');
       if (String(current).indexOf('/v2/market-research?marketplace=') === -1) {
@@ -82,15 +98,22 @@ export async function fetchMarketList({ keyword, nodeIdPath, limit = 50, marketp
         await waitFor(tabId, 'document.body.innerText.indexOf("筛选市场") >= 0', { timeout: 45 });
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
-      await runSnippet(tabId, 'set-context.js');
-      await runJson(tabId, 'window.__dsrCtx = ' + JSON.stringify({ keyword, nodeIdPath: nodeIdPath || '' }) + '; "OK"', { strict: false });
+      // 用类目名做筛选词最稳；只有 nodeIdPath 时先取该节点名（类目报告页的「市场名称」）
+      const filterKw = keyword || (await fetchNodeLabel(nodeIdPath).catch(() => null)) || nodeIdPath;
+      await runJson(tabId, 'window.__dsrCtx = ' + JSON.stringify({ keyword: filterKw, nodeIdPath: nodeIdPath || '' }) + '; "OK"', { strict: false });
       await runSnippet(tabId, 'type-keyword.js');
       await new Promise((resolve) => setTimeout(resolve, 2500));
       await runSnippet(tabId, 'select-node.js');
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
     await runSnippet(tabId, 'filter-market.js');
-    await new Promise((resolve) => setTimeout(resolve, 7000));
+    // 等表格真的渲染出内容（首列是数字、第二列非空），而不是固定睡 7 秒
+    await waitFor(
+      tabId,
+      '(() => { const tr = document.querySelector(\'table tbody tr\'); if (!tr) return false; const tds = [...tr.querySelectorAll(\'td\')]; return tds.length > 1 && /^\\d+$/.test((tds[0].innerText||\'\').trim()) && (tds[1].innerText||\'\').trim().length > 0; })()',
+      { timeout: 30, intervalMs: 1200 },
+    ).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 2500));
 
     livePush({ phase: 'market-list', level: 'info', message: '读取选市场页细分市场列表', url: MARKET_LIST_URL + marketplace, tabId });
     const list = await runSnippet(tabId, 'market-rows.js');

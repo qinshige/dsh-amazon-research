@@ -474,6 +474,24 @@ export async function selectCategoryWeb({ marketplace = 'US', category, nodeIdPa
     }
   }
 
+  /** 卖家类型分布（按查竞品样本的配送方式推导，样本口径）。 */
+  function buildSellerTypeDistribution(products) {
+    const map = new Map();
+    for (const product of products || []) {
+      const key = product.fulfillment || product.sellerSource || '';
+      if (!key) continue;
+      const hit = map.get(key) || { label: key, products: 0, units: 0, revenue: 0 };
+      hit.products += 1;
+      hit.units += Number(product.monthlySales) || 0;
+      hit.revenue += Number(product.monthlyRevenue) || 0;
+      map.set(key, hit);
+    }
+    const rows = [...map.values()];
+    const totalUnits = rows.reduce((sum, row) => sum + row.units, 0);
+    for (const row of rows) row.unitsRatio = totalUnits > 0 ? row.units / totalUnits : null;
+    return rows;
+  }
+
   const priceDistribution = buildPriceBands(products);
   const ratingsCount = buildReviewBuckets(products);
   const ratingDistribution = buildRatingBuckets(products);
@@ -521,7 +539,9 @@ export async function selectCategoryWeb({ marketplace = 'US', category, nodeIdPa
       rating: ratingDistribution,
       ratingsCount,
       listingDate,
-      sellerType: [],
+      // 卖家类型分布：类目报告页画的是图表（echarts 实例不暴露全局，取不到），
+      // 这里用查竞品样本的配送方式（FBA / FBM / AMZ）推导，属样本口径，报告里会标注。
+      sellerType: buildSellerTypeDistribution(products),
       product: [],
       demandTrend: [],
     },
