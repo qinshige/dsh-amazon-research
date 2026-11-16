@@ -9,6 +9,8 @@ import { createRun, writeArtifacts } from '../runs.js';
 import { buildSelectionPlan } from './channels.js';
 import { evaluateBatch } from './kpis.js';
 import { suggestDifferentiation } from './differentiate.js';
+import { buildDecisionBrief, coachFor } from './brief.js';
+import { decide, evaluateProfileFit, getProfile } from './profiles.js';
 import { renderSelectionReport, renderSelectionCsv, sensitivity } from './report.js';
 
 /** 最小 RFC4180 CSV 解析（支持引号、逗号、换行、BOM）。 */
@@ -83,6 +85,9 @@ function slimResult(item) {
     name: item.name,
     tier: item.tier,
     tierReason: item.tierReason,
+    decision: item.decision ? item.decision.decision : null,
+    decisionReason: item.decision ? item.decision.reason : null,
+    profileFit: item.profileFit ? item.profileFit.status : null,
     priceUSD: item.priceUSD,
     margin: item.margin,
     hitRate: item.hitRate,
@@ -107,6 +112,8 @@ export async function screenCandidates({
   dataDir = null,
   source = '手动 / 采集表',
   plan = null,
+  profile = 'beginner',
+  targetMonthlyUnits = null,
 } = {}) {
   const list = Array.isArray(rows) ? rows.filter((row) => row && typeof row === 'object') : [];
   if (list.length === 0) {
@@ -125,11 +132,22 @@ export async function screenCandidates({
     throw error;
   }
 
+  const prof = getProfile(profile);
   const batch = evaluateBatch(list, { fx });
   for (const item of batch.results) {
+    item.profileFit = evaluateProfileFit(item, prof);
+    item.decision = decide(item, item.profileFit, prof);
     item.differentiation = suggestDifferentiation(item);
     if (item.profit) item.sensitivity = sensitivity(item.profit);
+    item.brief = buildDecisionBrief({ candidate: item, profile: prof, targetMonthlyUnits, fx });
+    item.coach = coachFor(item, item.brief);
   }
+  batch.summary.decisions = {
+    做: batch.results.filter((item) => item.decision.decision === '做').length,
+    小批量测: batch.results.filter((item) => item.decision.decision === '小批量测').length,
+    先补数: batch.results.filter((item) => item.decision.decision === '先补数').length,
+    不做: batch.results.filter((item) => item.decision.decision === '不做').length,
+  };
 
   const generatedAt = new Date().toISOString();
   const inputHash = inputFingerprint(list);
@@ -153,6 +171,8 @@ export async function screenCandidates({
     plan: planData,
     source,
     fx,
+    profile: prof,
+    targetMonthlyUnits,
     runId: run.runId,
     inputHash,
     artifacts: artifactNames.map((name) => ({ name })),
@@ -172,6 +192,7 @@ export async function screenCandidates({
     avgMargin: batch.summary.avgMargin,
     nodeIdPath: planData?.nodeIdPath || '',
     category: planData?.category || '',
+    profile: prof.id,
     inputHash,
     engine: 'selection-v1',
   };
@@ -184,6 +205,7 @@ export async function screenCandidates({
     runId: run.runId,
     generatedAt,
     engine: 'selection-v1',
+    profile: prof.id,
     title,
     marketplace: site,
     source,
@@ -234,5 +256,7 @@ export async function screenCandidates({
     artifacts,
     generatedAt,
     inputHash,
+    profile: prof.id,
+    brief: batch.results[0]?.brief || null,
   };
 }

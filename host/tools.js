@@ -525,7 +525,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
       description: [
         '选品全流程（四途径 → 九策略 → 十维 → 差异化）：action=plan 出路线图，action=screen 对候选 ASIN 做十维体检、一票否决、分档与差异化建议。',
         'action=plan：按站点/类目生成站内 7 个榜单入口（Best Sellers / New Releases / Movers / Most Wished For / Gift Ideas / Deals / 热搜词）、站外与软件渠道、九种选品策略的适用性与步骤、十维采集清单。免费，不取数。',
-        'action=screen：接收采集表（rows 数组或 csv 文本，中英文列名均可），逐品输出 达标/警戒/不达标/未知、一票否决、一档/二档/三档/待复核/淘汰、全成本净利率、敏感性与差异化方向。落盘 report.md / selection.csv / provenance.json（原始输入 + SHA-256 输入指纹 + 逐项判定），报告第八章给出每个 KPI 的输入列与来源。免费，不消耗数据服务额度。',
+        'action=screen：接收采集表（rows 数组或 csv 文本，中英文列名均可），逐品输出 达标/警戒/不达标/未知、一票否决、一档/二档/三档/待复核/淘汰、全成本净利率、敏感性与差异化方向；报告开头是决策单（做/小批量测/先补数/不做、致命项、安全边际、首批资金与回本、可攻击面），新手画像额外输出教练层。落盘 report.md / selection.csv / provenance.json（原始输入 + SHA-256 输入指纹 + 逐项判定），报告第八章给出每个 KPI 的输入列与来源。免费，不消耗数据服务额度。',
         '纪律：缺失字段记「未知」不计入命中率；采购价必须来自 1688 真实报价；榜单数字必须真实抓取，禁止用记忆补。',
       ].join('\n'),
       parameters: {
@@ -550,6 +550,12 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           fx: { type: 'number', description: '汇率（1 USD = ? CNY），默认 7.1' },
           title: { type: 'string', description: '报告标题，默认用 category 或「选品体检」' },
           source: { type: 'string', description: '候选来源标注，如「BS 榜 / 竞品店铺 / 手动采集」' },
+          profile: {
+            type: 'string',
+            enum: ['beginner', 'operator', 'factory'],
+            description: '卖家画像：beginner 新手（资金<10万/无供应链，默认）｜operator 进阶｜factory 工厂型。画像决定售价带/重量/变体/认证/季节/利润红线的适配判断，并输出决策单与新手教练层',
+          },
+          targetMonthlyUnits: { type: 'integer', minimum: 10, maximum: 100000, description: '目标月销单数，用于首批回本估算；不传用画像默认（新手 100 / 进阶 300 / 工厂 500）' },
           outDir: { type: 'string', description: '报告输出根目录；不传用插件配置' },
         },
         required: ['action'],
@@ -597,6 +603,8 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
             dataDir,
             source: asString(args?.source) || 'research_product_select',
             plan,
+            profile: asString(args?.profile) || 'beginner',
+            targetMonthlyUnits: typeof args?.targetMonthlyUnits === 'number' && Number.isFinite(args.targetMonthlyUnits) ? args.targetMonthlyUnits : null,
           });
           return { ...result, action };
         } catch (error) {

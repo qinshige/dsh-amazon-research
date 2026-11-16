@@ -42,6 +42,11 @@ function money(value) {
   return n === null ? '—' : '$' + n.toFixed(2);
 }
 
+function cny(value) {
+  const n = num(value);
+  return n === null ? '—' : '¥' + Math.round(n).toLocaleString('en-US');
+}
+
 function pct(value, digits = 0) {
   const n = num(value);
   return n === null ? '—' : (n * 100).toFixed(digits) + '%';
@@ -119,7 +124,7 @@ function planSection(plan) {
  * 渲染选品体检报告。
  * @param {{title:string, marketplace:string, generatedAt:string, batch:object, plan?:object, source?:string, fx?:number}} params
  */
-export function renderSelectionReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, plan = null, source = '手动/采集表', fx = 7.1, runId = '', inputHash = '', artifacts = [] } = {}) {
+export function renderSelectionReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, plan = null, source = '手动/采集表', fx = 7.1, runId = '', inputHash = '', artifacts = [], profile = null, targetMonthlyUnits = null } = {}) {
   const results = batch?.results || [];
   const summary = batch?.summary || { tiers: {}, commonGaps: [], vetoed: 0, needsReview: [], avgMargin: null };
   const lines = [];
@@ -130,17 +135,85 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
   push('> 运行 ID：' + (runId || '—') + ' ｜ 输入指纹：' + (inputHash || '—'), '');
   push('---', '');
 
-  // 一、结论
-  push('## 一、结论摘要', '');
+  // 一、决策摘要与结论
+  push('## 一、决策摘要与结论', '');
+  const top = results[0] || null;
+  const brief = top && top.brief ? top.brief : null;
+  if (brief) {
+    push('### 1.1 决策单（先看这页）', '');
+    push('**结论：' + brief.decision + '** ｜ 画像：' + brief.profile.label, '');
+    push('> ' + brief.reason, '');
+    if (top.asin) push('> 当前排序第一：' + top.asin + ' ' + (top.name || '') + '；其余候选见第三节。', '');
+    push('');
+    const fatal = [
+      ...top.vetoes.map((v) => v.label + '（' + v.detail + '）'),
+      ...(brief.fit && brief.fit.fails ? brief.fit.fails.map((f) => f.label + '（' + f.detail + '）') : []),
+    ];
+    push('**致命项**：' + (fatal.length > 0 ? fatal.join('；') : '无（仍需人工查专利/认证）'), '');
+    if (brief.safety) {
+      push('**安全边际**（目标净利率 ' + pct(brief.safety.targetMargin, 0) + '）：', '');
+      push(...table(['项目', '阈值', '当前'], [
+        ['采购价上限', cny(brief.safety.maxPurchaseCNY), cny(brief.safety.currentPurchaseCNY)],
+        ['售价下限', money(brief.safety.minPriceUSD), money(brief.safety.currentPriceUSD)],
+        ['广告上限', pct(brief.safety.maxAdRate, 1), '—'],
+        ['退货上限', pct(brief.safety.maxReturnRate, 1), '—'],
+      ]));
+      if (brief.safety.feasible === false) push('> 按目标净利率，当前成本结构已无法覆盖，需提价、换供应链或放弃。', '');
+      push('');
+    } else {
+      push('**安全边际**：缺采购价或售价，先补 1688 报价再算。', '');
+    }
+    const batchLabel = brief.decision === '不做' ? '首批（若坚持做，仅供估算）' : '首批';
+    if (brief.batch && brief.batch.available) {
+      push('**' + batchLabel + '**：' + brief.batch.variantCount + ' 个变体 × ' + brief.batch.units + ' 件，资金约 ' + cny(brief.batch.capitalCNY)
+        + '（货款 ' + cny(brief.batch.goodsCNY) + ' + 头程 ' + cny(brief.batch.freightCNY) + '）；目标月销 '
+        + brief.batch.targetMonthlyUnits + ' 单，回本约 '
+        + (brief.batch.paybackMonths === null ? '无法估算' : brief.batch.paybackMonths.toFixed(1) + ' 个月')
+        + (brief.batch.overBudget ? '；**超过画像资金上限**' : '') + '。', '');
+    } else {
+      push('**首批**：' + (brief.batch && brief.batch.reason ? brief.batch.reason : '缺数据') + '。', '');
+    }
+    push('> 假设：按目标月销全部售出，不含广告固定投入、退货二次成本与仓储；样品费单独估算。', '');
+    push('');
+    push('**可攻击面**：', '');
+    for (const item of brief.attackSurface) push('- ' + item);
+    push('');
+    push('**改变结论的条件**：', '');
+    for (const item of brief.changeMyMind) push('- ' + item);
+    push('');
+
+    if (brief.profile.id === 'beginner' && top.coach) {
+      push('### 1.2 新手教练（老手可跳过）', '');
+      push('**为什么是这个结论**', '');
+      for (const item of top.coach.why) push('- ' + item);
+      push('');
+      push('**这个类目的坑**', '');
+      for (const item of top.coach.pitfalls) push('- ' + item);
+      push('');
+      push('**今天 / 本周 / 下周**', '');
+      for (const item of brief.actions) push('- ' + item);
+      push('');
+      push('**术语**', '');
+      push(...table(['术语', '一句话解释'], top.coach.terms));
+      push('');
+    }
+  } else {
+    push('本批没有候选数据：先按第二节抓候选、填采集表。', '');
+  }
+
+  push('### 1.3 分档统计与候选', '');
   push('**分档：' + TIER_ORDER.map((tier) => tier + ' ' + (summary.tiers[tier] || 0)).join(' ｜ ') + '**', '');
+  if (summary.decisions) {
+    push('**结论分布：' + Object.entries(summary.decisions).map(([key, value]) => key + ' ' + value).join(' ｜ ') + '**', '');
+  }
   if (summary.avgMargin !== null) push('- 平均净利率：**' + pct(summary.avgMargin, 1) + '**（全成本口径：采购 + 头程 + FBA + 佣金 + 广告 + 退货 + 其它）。');
   push('- 一票否决：**' + summary.vetoed + '** 个；待复核：**' + summary.needsReview.length + '** 个。');
   const picks = results.filter((item) => item.tier === '一档' || item.tier === '二档').slice(0, 5);
   if (picks.length > 0) {
     push('');
     push('**优先候选（一档 / 二档，最多 5 个）**：', '');
-    push(...table(['ASIN', '商品', '档位', '售价', '净利率', 'KPI 命中率', '理由'], picks.map((item) => [
-      item.asin || '—', item.name || '—', item.tier, money(item.priceUSD), pct(item.margin, 1), pct(item.hitRate), item.tierReason,
+    push(...table(['ASIN', '商品', '档位', '结论', '售价', '净利率', 'KPI 命中率', '理由'], picks.map((item) => [
+      item.asin || '—', item.name || '—', item.tier, item.decision ? item.decision.decision : '—', money(item.priceUSD), pct(item.margin, 1), pct(item.hitRate), item.tierReason,
     ])));
   } else {
     push('');

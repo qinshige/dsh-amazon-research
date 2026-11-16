@@ -7,6 +7,8 @@ import { evaluateBatch, evaluateCandidate, normalizeCandidate } from '../host/se
 import { buildSelectionPlan, amazonDomain } from '../host/selection/channels.js';
 import { suggestDifferentiation } from '../host/selection/differentiate.js';
 import { inputFingerprint, parseCsv, screenCandidates } from '../host/selection/pipeline.js';
+import { decide, evaluateProfileFit } from '../host/selection/profiles.js';
+import { buildDecisionBrief } from '../host/selection/brief.js';
 import { sensitivity } from '../host/selection/report.js';
 import { scoreMarket } from '../host/scoring.js';
 import { renderCategoryReport } from '../host/report.js';
@@ -176,7 +178,10 @@ test('体检落盘：report.md 含四途径、十维、否决、差异化与追�
     assert.ok(out.runId);
     assert.match(out.inputHash, /^sha256:[0-9a-f]{64}$/);
     const report = await readFile(join(out.dir, 'report.md'), 'utf8');
-    assert.match(report, /## 一、结论摘要/);
+    assert.match(report, /## 一、决策摘要与结论/);
+    assert.match(report, /### 1\.1 决策单/);
+    assert.match(report, /安全边际/);
+    assert.match(report, /### 1\.2 新手教练/);
     assert.match(report, /## 二、四途径执行路线/);
     assert.match(report, /## 三、十维体检明细/);
     assert.match(report, /## 四、一票否决清单/);
@@ -201,6 +206,66 @@ test('体检落盘：report.md 含四途径、十维、否决、差异化与追�
     assert.equal(provenance.inputs.length, 2);
     assert.equal(provenance.inputs[0]['1688链接'], 'https://detail.1688.com/offer/1.html');
     assert.ok(provenance.results[0].checks.length > 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('卖家画像：同一个品对新手不适合、对进阶可测', () => {
+  const row = {
+    ...baseRow,
+    售价USD: 42,
+    采购价CNY: 30,
+    重量g: 1800,
+    FBA配送费USD: 5.3,
+    广告占比: 8,
+    退货率: 4,
+    季节性: '强季节',
+    变体数: 3,
+  };
+  const candidate = evaluateCandidate(row);
+  const beginnerFit = evaluateProfileFit(candidate, 'beginner');
+  const operatorFit = evaluateProfileFit(candidate, 'operator');
+  assert.equal(beginnerFit.status, '不适合');
+  assert.ok(beginnerFit.fails.some((item) => item.label.includes('重量')));
+  assert.notEqual(operatorFit.status, '不适合');
+
+  candidate.profileFit = beginnerFit;
+  candidate.decision = decide(candidate, beginnerFit, 'beginner');
+  assert.equal(candidate.decision.decision, '不做');
+
+  candidate.profileFit = operatorFit;
+  candidate.decision = decide(candidate, operatorFit, 'operator');
+  assert.ok(['做', '小批量测'].includes(candidate.decision.decision));
+});
+
+test('决策单：安全边际与首批资金可复算', () => {
+  const candidate = evaluateCandidate({ ...baseRow, 售价USD: 42, 采购价CNY: 30, 重量g: 1800, FBA配送费USD: 5.3, 广告占比: 8, 退货率: 4 });
+  candidate.profileFit = evaluateProfileFit(candidate, 'operator');
+  candidate.decision = decide(candidate, candidate.profileFit, 'operator');
+  const brief = buildDecisionBrief({ candidate, profile: 'operator', fx: 7.1 });
+  assert.equal(brief.decision, candidate.decision.decision);
+  assert.ok(brief.safety.maxPurchaseCNY > candidate.inputs.purchaseCNY, '采购上限应高于当前采购价');
+  assert.ok(brief.safety.minPriceUSD < candidate.priceUSD, '售价下限应低于当前售价');
+  assert.ok(brief.safety.maxAdRate > 0);
+  assert.equal(brief.batch.available, true);
+  assert.ok(brief.batch.capitalCNY > 0);
+  assert.ok(brief.actions.length >= 3);
+  assert.ok(brief.changeMyMind.length > 0);
+});
+
+test('报告：新手有教练层，进阶没有', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsr-profile-'));
+  try {
+    const beginner = await screenCandidates({ rows: [baseRow], outputRoot: dir, title: '新手', profile: 'beginner' });
+    const operator = await screenCandidates({ rows: [baseRow], outputRoot: dir, title: '进阶', profile: 'operator' });
+    const beginnerMd = await readFile(join(beginner.dir, 'report.md'), 'utf8');
+    const operatorMd = await readFile(join(operator.dir, 'report.md'), 'utf8');
+    assert.match(beginnerMd, /### 1\.2 新手教练/);
+    assert.doesNotMatch(operatorMd, /### 1\.2 新手教练/);
+    assert.match(operatorMd, /### 1\.1 决策单/);
+    assert.equal(beginner.profile, 'beginner');
+    assert.equal(operator.profile, 'operator');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

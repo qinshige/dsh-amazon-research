@@ -22,7 +22,7 @@ import { createTools } from './host/tools.js';
 import { registerRoutes } from './host/routes.js';
 
 export const name = 'dsh-amazon-research';
-export const version = '0.3.1';
+export const version = '0.3.2';
 
 /** 工具是硬依赖；缺了它插件没有意义。 */
 export const inject = ['tools'];
@@ -44,7 +44,7 @@ const GUIDANCE_TEXT = [
   '4. 评分口径固定为上游 92 分制：normalized = total/92*100，评级 ≥80 优秀 / ≥60 良好 / ≥40 一般 / <40 较差。报告里要同时写清 score/max 与归一化值。',
   '5. 数据纪律：所有数字必须来自工具返回；缺失字段写「未取到」并说明；每次结论附数据来源与抓取时间；禁止用常识补齐 ASIN、销量、价格、排名。',
   '6. ' + bt + 'mcp_call' + bt + ' 只是逃生口（关键词/评论/单品详情等尚未封装的能力），优先用高层工具。',
-  '7. 选品全流程（四途径 → 九策略 → 十维 → 差异化）：先 ' + bt + 'research_product_select' + bt + '（action=plan）拿到站内 7 个榜单入口、站外/软件/线下渠道、九策略适用性与十维清单；把候选 ASIN 按采集表填好后用 action=screen 做十维体检、一票否决、一档/二档/三档/待复核/淘汰分档、净利率与差异化；一档/二档再跑 ' + bt + 'research_unit_cost' + bt + ' 采 1688 真实采购价重算。两个 action 都不消耗数据服务额度。',
+  '7. 选品全流程（四途径 → 九策略 → 十维 → 差异化）：先 ' + bt + 'research_product_select' + bt + '（action=plan）拿到站内 7 个榜单入口、站外/软件/线下渠道、九策略适用性与十维清单；把候选 ASIN 按采集表填好后用 action=screen 做十维体检、一票否决、分档、净利率与差异化。screen 传 profile（beginner 默认 / operator / factory）与 targetMonthlyUnits，报告开头直接给决策单：做/小批量测/先补数/不做、致命项、安全边际（采购上限/售价下限/广告上限/退货上限）、首批资金与回本、可攻击面；新手画像另带教练层。一档/二档再跑 ' + bt + 'research_unit_cost' + bt + ' 采 1688 真实采购价重算。两个 action 都不消耗数据服务额度。',
   '8. 内置技能：amazon-product-selection 覆盖四途径与九策略（单品级），amazon-category-selection 只做类目五维（类目级）；不要用类目数据冒充单品结论。',
   '',
   'Trendyol P1：先 research_provider_status(provider=trendyol-web)，无需 Secret Key；当前支持 TR（土耳其，www.trendyol.com，TRY）和 SA（沙特阿拉伯，www.trendyol.sa/en，SAR）；请用户打开目标官网并确认国家。官网启用国家以中文展示，其余国家尚未接通抓取。轻量探测只代表找到标签页，不代表页面/国家校验已通过。',

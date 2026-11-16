@@ -17,6 +17,13 @@
 
 ---
 
+## v0.3.2：卖家画像 + 决策单 + 新手教练层
+
+- `research_product_select` 新增 `profile`（beginner / operator / factory）与 `targetMonthlyUnits`：画像决定售价带、重量、变体、认证、季节、利润红线的适配判断。
+- 报告开头改为**决策单**：结论（做 / 小批量测 / 先补数 / 不做）、致命项、安全边际（采购上限、售价下限、广告上限、退货上限）、首批资金与回本、可攻击面、改变结论的条件。
+- 新手画像额外输出**教练层**：为什么是这个结论、这个类目的坑、今天/本周/下周动作、术语解释；进阶/工厂型自动省略。
+- 十维明细保留为证据层，决策单在前、证据在后。
+
 ## v0.3.1：选品报告可追溯
 
 - `research_product_select`（action=screen）新增 `provenance.json`：原样保存输入行、逐项判定、SHA-256 输入指纹；`manifest.json` 同步记录指纹。
@@ -145,6 +152,8 @@ MCP 链路消耗 9~11 次额度；返回 runId 与报告目录。报告含五维
       "action": "screen",
       "title": "Vases 候选",
       "source": "BS 榜 / 竞品店铺",
+      "profile": "beginner",
+      "targetMonthlyUnits": 100,
       "rows": [
         {
           "ASIN": "B0XXXXXXX",
