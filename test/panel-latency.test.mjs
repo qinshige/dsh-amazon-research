@@ -29,7 +29,10 @@ test('routes.js：provider 状态探测有超时保护', async () => {
   // 超时值必须显著小于前端 8 秒
   const m = /const PROVIDER_PROBE_TIMEOUT_MS = (\d+)/.exec(src);
   assert.ok(m, '必须能读到超时值');
-  assert.ok(Number(m[1]) < 5000, '探测超时应 < 5000ms（前端总超时 8s）');
+  // 实测：Chrome 标签页多时 listTabs 要 1.3~2.0 秒，2.5 秒会误报「连接失败」。
+  // 上限 7000ms：既能跑完浏览器探针，又显著小于前端 8 秒总超时。
+  assert.ok(Number(m[1]) >= 3000, '探测超时应 ≥ 3000ms（实测 listTabs 需 1.3~2.0s）');
+  assert.ok(Number(m[1]) <= 7000, '探测超时应 ≤ 7000ms（前端总超时 8s）');
 });
 
 test('providers.js：网页 provider 的 status 有超时兜底', async () => {

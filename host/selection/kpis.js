@@ -272,31 +272,37 @@ export function evaluateCandidate(row, { fx = 7.1, smallVolumeUnits = 200, chann
   const veto = (code, label, detail) => vetoes.push({ code, label, detail });
 
   // 1) 市场容量与竞争热度 ------------------------------------------------
-  if (c.top100Units === null) add(check('capacity', 1, '市场容量（Top100 月销）', UNKNOWN, '—'));
-  else if (c.top100Units >= 100000 && c.top100Units <= 300000) add(check('capacity', 1, '市场容量（Top100 月销）', OK, String(Math.round(c.top100Units)), '落在 10 万–30 万理想带'));
-  else if (c.top100Units < 10000) add(check('capacity', 1, '市场容量（Top100 月销）', BAD, String(Math.round(c.top100Units)), '需求过小'));
-  else add(check('capacity', 1, '市场容量（Top100 月销）', WARN, String(Math.round(c.top100Units)), '偏大或偏小，竞争/需求需再确认'));
+  if (c.top100Units === null) add(check('capacity', 1, '类目市场容量（Top100 月销）', UNKNOWN, '—'));
+  else if (c.top100Units >= 100000 && c.top100Units <= 300000) add(check('capacity', 1, '类目市场容量（Top100 月销）', OK, String(Math.round(c.top100Units)), '落在 10 万–30 万理想带'));
+  else if (c.top100Units < 10000) add(check('capacity', 1, '类目市场容量（Top100 月销）', BAD, String(Math.round(c.top100Units)), '需求过小（类目级）'));
+  else add(check('capacity', 1, '类目市场容量（Top100 月销）', WARN, String(Math.round(c.top100Units)), '偏大或偏小，竞争/需求需再确认'));
 
-  if (c.brandConcentrationPct === null) add(check('concentration', 1, '品牌集中度', UNKNOWN, '—'));
-  else if (c.brandConcentrationPct < 50) add(check('concentration', 1, '品牌集中度', OK, c.brandConcentrationPct.toFixed(0) + '%'));
-  else if (c.brandConcentrationPct <= 70) add(check('concentration', 1, '品牌集中度', WARN, c.brandConcentrationPct.toFixed(0) + '%'));
+  // —— 类目级指标：只判「这个类目值不值得进」，不逐品否决 ——
+  // 品牌集中度 / 前十评价数 / 新品占比 / 市场容量 都是**类目**的属性，
+  // 同一个类目里每个 ASIN 都一样。若按单品维度否决，会出现「整批候选被同一条理由全部淘汰」
+  // （实测：集中度 88.7% → 38 个候选全被判「品牌集中度过高」淘汰）。
+  // 正确做法：类目级风险在批次汇总里提示，淘汰与否由单品自身指标决定。
+  const classRisks = [];
+  if (c.brandConcentrationPct === null) add(check('concentration', 1, '类目品牌集中度', UNKNOWN, '—'));
+  else if (c.brandConcentrationPct < 50) add(check('concentration', 1, '类目品牌集中度', OK, c.brandConcentrationPct.toFixed(0) + '%'));
+  else if (c.brandConcentrationPct <= 70) add(check('concentration', 1, '类目品牌集中度', WARN, c.brandConcentrationPct.toFixed(0) + '%', '头部中等集中'));
   else {
-    add(check('concentration', 1, '品牌集中度', BAD, c.brandConcentrationPct.toFixed(0) + '%', '大牌垄断'));
-    veto('CONCENTRATION', '品牌集中度过高', '品牌集中度 ' + c.brandConcentrationPct.toFixed(0) + '% > 70%');
+    add(check('concentration', 1, '类目品牌集中度', BAD, c.brandConcentrationPct.toFixed(0) + '%', '大牌垄断（类目级风险）'));
+    classRisks.push('类目品牌集中度 ' + c.brandConcentrationPct.toFixed(0) + '% > 70%，头部垄断：正面竞争不划算，需换人群/场景/价格带切入');
   }
 
   if (c.top10Reviews === null) add(check('reviewBarrier', 4, '类目前十评价数', UNKNOWN, '—'));
   else if (c.top10Reviews < 1000) add(check('reviewBarrier', 4, '类目前十评价数', OK, String(Math.round(c.top10Reviews))));
-  else if (c.top10Reviews <= 10000) add(check('reviewBarrier', 4, '类目前十评价数', WARN, String(Math.round(c.top10Reviews))));
+  else if (c.top10Reviews <= 10000) add(check('reviewBarrier', 4, '类目前十评价数', WARN, String(Math.round(c.top10Reviews)), '类目级评价壁垒'));
   else {
-    add(check('reviewBarrier', 4, '类目前十评价数', BAD, String(Math.round(c.top10Reviews)), '评价壁垒过高'));
-    veto('REVIEW_BARRIER', '评价壁垒过高', '前 10 名评价数 ' + Math.round(c.top10Reviews) + ' > 10000');
+    add(check('reviewBarrier', 4, '类目前十评价数', BAD, String(Math.round(c.top10Reviews)), '评价壁垒过高（类目级风险）'));
+    classRisks.push('类目前 10 名评价数 ' + Math.round(c.top10Reviews) + ' > 10000，评价壁垒高，新链接起量慢');
   }
 
-  if (c.newProductPct === null) add(check('newShare', 5, '新品占比', UNKNOWN, '—'));
-  else if (c.newProductPct >= 10 && c.newProductPct <= 25) add(check('newShare', 5, '新品占比', OK, c.newProductPct.toFixed(0) + '%', '10%–25%：仍有新卖家空间'));
-  else if (c.newProductPct < 5) add(check('newShare', 5, '新品占比', BAD, c.newProductPct.toFixed(0) + '%', '阶层固化'));
-  else add(check('newShare', 5, '新品占比', WARN, c.newProductPct.toFixed(0) + '%', '流动但拥挤/或偏冷'));
+  if (c.newProductPct === null) add(check('newShare', 5, '类目新品占比', UNKNOWN, '—'));
+  else if (c.newProductPct >= 10 && c.newProductPct <= 25) add(check('newShare', 5, '类目新品占比', OK, c.newProductPct.toFixed(0) + '%', '10%–25%：仍有新卖家空间'));
+  else if (c.newProductPct < 5) add(check('newShare', 5, '类目新品占比', BAD, c.newProductPct.toFixed(0) + '%', '阶层固化'));
+  else add(check('newShare', 5, '类目新品占比', WARN, c.newProductPct.toFixed(0) + '%', '流动但拥挤/或偏冷'));
 
   // 2) 产品趋势 ----------------------------------------------------------
   if (!c.trend) add(check('trend', 2, '产品趋势', UNKNOWN, '—'));
@@ -455,6 +461,7 @@ export function evaluateCandidate(row, { fx = 7.1, smallVolumeUnits = 200, chann
     judgedCount: judged.length,
     hitRate,
     vetoes,
+    classRisks,
     unknown,
     tier,
     tierReason,
@@ -524,6 +531,7 @@ export function evaluateBatch(rows, opts = {}) {
       avgMargin: margins.length ? margins.reduce((sum, value) => sum + value, 0) / margins.length : null,
       commonGaps: [...gaps.values()].sort((a, b) => (b.fail * 2 + b.warn) - (a.fail * 2 + a.warn)).slice(0, 8),
       vetoed: results.filter((item) => item.vetoes.length > 0).length,
+      classRisks: [...new Set(results.flatMap((item) => item.classRisks || []))],
       needsReview: results.filter((item) => item.tier === '待复核').map((item) => ({ asin: item.asin, name: item.name, missing: item.unknown })),
     },
   };

@@ -53,6 +53,33 @@ function err(code, message, hint, extra = {}) {
   return { ok: false, error: { code, message, ...(hint ? { hint } : {}) }, ...extra };
 }
 
+/**
+ * 清洗返回值：去掉 undefined、把非有限数字转成 null。
+ *
+ * 为什么需要：harness 的工具返回值校验要求「无损 JSON」往返，
+ * 而 JSON.stringify 会**静默丢掉** undefined（对象属性直接消失），导致校验失败。
+ * 实测：market.products[].seller 为 undefined → 工具报 "value is not lossless JSON"，
+ * 而运行其实已经成功（产物已落盘），只是返回值没过桥。
+ */
+function jsonSafe(value, depth = 0) {
+  if (depth > 12) return null;
+  if (value === null) return null;
+  const type = typeof value;
+  if (type === 'number') return Number.isFinite(value) ? value : null;
+  if (type === 'string' || type === 'boolean') return value;
+  if (type === 'undefined' || type === 'function' || type === 'symbol') return null;
+  if (Array.isArray(value)) return value.map((item) => jsonSafe(item, depth + 1));
+  if (type === 'object') {
+    const out = {};
+    for (const key of Object.keys(value)) {
+      const cleaned = jsonSafe(value[key], depth + 1);
+      if (cleaned !== null || value[key] === null) out[key] = cleaned;
+    }
+    return out;
+  }
+  return null;
+}
+
 function asString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -226,7 +253,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
               dataDir,
               marketplace,
             });
-            return { ...result, outputRoot };
+            return jsonSafe({ ...result, outputRoot });
           } catch (error) {
             const code = typeof error?.code === 'string' ? error.code : 'SELECT_FAILED';
             const message = String(error?.message ?? error);
@@ -273,7 +300,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
               outputRoot,
               dataDir,
             }));
-            return { ...result, outputRoot };
+            return jsonSafe({ ...result, outputRoot });
           } catch (error) {
             const code = typeof error?.code === 'string' ? error.code : 'SELECT_FAILED';
             const message = String(error?.message ?? error);
@@ -304,7 +331,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
             const extra = ['本次传入的 1688 采购成本（costs）仅 sellersprite-web 链路支持，MCP 链路未接入；利润空间维度仍按 unitCost / 价格带口径评分'];
             result.warnings = [...(Array.isArray(result.warnings) ? result.warnings : []), ...extra];
           }
-          return { ...result, outputRoot };
+          return jsonSafe({ ...result, outputRoot });
         } catch (error) {
           const code = typeof error?.code === 'string' ? error.code : 'SELECT_FAILED';
           const message = String(error?.message ?? error);
@@ -408,6 +435,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
       output: { schema: OUTPUT_SCHEMA, render: renderJson },
       isConcurrencySafe: () => false,
       async execute(args) {
+        const config = await readConfig(dataDir);
         const limit = asInt(args?.limit, 5, 1, 20);
         const detailLimit = asInt(args?.detailLimit, 3, 0, 10);
         const category = asString(args?.category);
@@ -435,7 +463,9 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
         const offers = [];
         const profit = [];
         const warnings = [];
-        await beginSession({ runId: 'live-sourcing-' + Date.now(), dir: join(outputRoot, LIVE_SESSION_DIR, 'live-sourcing-' + Date.now()), record: false, source: '1688 采价' });
+        const sourcingRoot = resolveOutputRoot(config, asString(args?.outDir));
+        const sourcingSessionId = 'live-sourcing-' + Date.now();
+        await beginSession({ runId: sourcingSessionId, dir: join(sourcingRoot, LIVE_SESSION_DIR, sourcingSessionId), record: false, source: '1688 采价' });
         for (const sub of subMarkets) {
           let search;
           try {

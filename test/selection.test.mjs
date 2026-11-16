@@ -60,10 +60,13 @@ test('十维体检：数据齐全的候选进一档', () => {
   assert.equal(result.profit.fbaFeeUSD, 3.77);
 });
 
-test('一票否决：品牌集中度 > 70% 直接淘汰', () => {
+test('类目级指标（集中度）只进类目风险，不逐品否决', () => {
   const result = evaluateCandidate({ ...baseRow, '品牌集中度%': 80 });
-  assert.equal(result.tier, '淘汰');
-  assert.ok(result.vetoes.some((v) => v.code === 'CONCENTRATION'));
+  // 集中度是**类目**属性：同一个类目里每个 ASIN 都一样，不能逐品淘汰
+  assert.equal(result.vetoes.some((v) => v.code === 'CONCENTRATION'), false);
+  assert.ok(result.classRisks.some((risk) => risk.includes('品牌集中度')));
+  const concentration = result.checks.find((item) => item.key === 'concentration');
+  assert.equal(concentration.status, '不达标');
 });
 
 test('一票否决：大类目（< 3 级）淘汰', () => {
@@ -101,9 +104,9 @@ test('缺净利率：待复核，不硬给档位', () => {
 });
 
 test('批量汇总：分档统计与共性短板', () => {
-  const batch = evaluateBatch([baseRow, { ...baseRow, ASIN: 'B0BAD', '品牌集中度%': 90 }]);
+  const batch = evaluateBatch([baseRow, { ...baseRow, ASIN: 'B0BAD', 变体数: 9 }]);
   assert.equal(batch.summary.tiers['一档'], 1);
-  assert.equal(batch.summary.tiers['淘汰'], 1);
+  assert.equal(batch.summary.tiers['淘汰'], 1, '变体 > 3 仍应逐品淘汰');
   assert.ok(batch.summary.commonGaps.length > 0);
 });
 
@@ -170,7 +173,7 @@ test('体检落盘：report.md 含四途径、十维、否决、差异化与追�
     const out = await screenCandidates({
       rows: [
         { ...baseRow, 链接: 'https://www.amazon.com/dp/B0TEST0001', '1688链接': 'https://detail.1688.com/offer/1.html', '采集时间': '2026-11-16T12:00:00Z', 来源: 'BS 榜' },
-        { ...baseRow, ASIN: 'B0BAD', '品牌集中度%': 85 },
+        { ...baseRow, ASIN: 'B0BAD', 变体数: 9 },
       ],
       outputRoot: dir,
       title: 'Vases 测试',

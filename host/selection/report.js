@@ -226,7 +226,15 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
       }
       push('');
     }
-  push('### 1.4 分档统计与候选（插件的选品结论）', '');
+  if (summary.classRisks && summary.classRisks.length > 0) {
+    push('### 1.4 类目级风险（对整批候选生效，不是单品否决）', '');
+    for (const risk of summary.classRisks) push('- ' + risk);
+    push('');
+    push('> 这些是**类目**层面的结论：集中度、评价壁垒这类指标同一个类目里每个 ASIN 都一样，');
+    push('> 所以不用于淘汰单品 —— 要不要做这个类目，看这里；具体做哪个品，看下一节的单品档位。', '');
+    push('');
+  }
+  push('### 1.5 分档统计与候选（插件的选品结论）', '');
   push('**分档：' + TIER_ORDER.map((tier) => tier + ' ' + (summary.tiers[tier] || 0)).join(' ｜ ') + '**', '');
   if (summary.decisions) {
     push('**结论分布：' + Object.entries(summary.decisions).map(([key, value]) => key + ' ' + value).join(' ｜ ') + '**', '');

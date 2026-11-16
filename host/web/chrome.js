@@ -19,7 +19,7 @@ const APPLESCRIPT = `on run argv
     tell application "Google Chrome"
       repeat with w in windows
         repeat with t in tabs of w
-          set out to out & (id of t) & "\t" & (title of t) & "\t" & (URL of t) & linefeed
+          set out to out & (id of t) & "\t" & (URL of t) & linefeed
         end repeat
       end repeat
     end tell
@@ -106,13 +106,19 @@ function osa(verbArgs, timeout = 120_000) {
   });
 }
 
-/** 列出标签页 */
+/**
+ * 列出标签页（**不取标题**）。
+ *
+ * 为什么不要标题：取 title 要额外 0.6 秒（70 个标签页时 1.98s → 1.34s），
+ * 而项目里没有任何地方用 tab.title（页面标题另走 document.title / snippet 取）。
+ * 探针要在 2.5s 内返回，否则面板会误报「连接失败」。
+ */
 export async function listTabs() {
   const out = await osa(['tabs']);
   const rows = [];
   for (const line of out.split('\n')) {
     const parts = line.split('\t');
-    if (parts.length >= 3) rows.push({ id: parts[0], title: parts[1], url: parts[2] });
+    if (parts.length >= 2) rows.push({ id: parts[0], url: parts[1], title: '' });
   }
   return rows;
 }

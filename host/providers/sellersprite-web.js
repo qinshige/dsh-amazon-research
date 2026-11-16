@@ -7,7 +7,7 @@ import { listTabs } from '../web/chrome.js';
  */
 
 /** 健康检查结果缓存（避免每次面板刷新都跑浏览器自动化）。 */
-const HEALTH_TTL_MS = 60_000;
+const HEALTH_TTL_MS = 180_000;
 let healthCache = { at: 0, value: null };
 
 /**

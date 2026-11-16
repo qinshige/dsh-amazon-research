@@ -14,8 +14,12 @@
  *
  * 纪律：只读页面已渲染的内容，不调用扩展的付费接口、不逆向登录态；
  * 扩展没装 / 面板没渲染时返回明确错误，不静默返回空表。
+ *
+ * ⚠️ 页面片段里**禁止写正则**：片段是 JS 字符串字面量，`'\\s'` 会被求值成 `'s'`，
+ *   正则直接坏掉（实测 /\\s+/ 变成 /s+/ 报 "Nothing to repeat"，采集器静默失效）。
+ *   下面所有文本处理都用 split/join，不用正则。
  */
-import { openTab, runJson, waitFor, closeTab, focusTab } from '../web/chrome.js';
+import { listTabs, openTab, runJson, waitFor, closeTab, focusTab } from '../web/chrome.js';
 
 const AMAZON_DOMAINS = {
   US: 'amazon.com', UK: 'amazon.co.uk', DE: 'amazon.de', FR: 'amazon.fr',
@@ -27,115 +31,135 @@ const AMAZON_DOMAINS = {
 function normalizeTitle(text) {
   return String(text || '')
     .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, ' ')
-    .trim();
+    .split(' ').filter(Boolean).join(' ');
 }
 
-function parseNumber(text) {
-  const match = String(text ?? '').replace(/,/g, '').match(/-?\d+(\.\d+)?/);
-  return match ? Number(match[0]) : null;
+/** 取第一个数字（不用正则）：返回 null 表示没有数字。 */
+function firstNumber(text) {
+  const cleaned = String(text ?? '').replace(/[^0-9.]/g, '');
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
 }
 
 function parseRating(text) {
-  const match = String(text ?? '').match(/([\d.]+)\s*out of 5/);
-  if (match) return Number(match[1]);
-  const n = parseNumber(text);
+  const n = firstNumber(text);
   return n !== null && n >= 0 && n <= 5 ? n : null;
 }
 
 function parseReviews(text) {
-  const match = String(text ?? '').replace(/,/g, '').match(/(\d+)/);
-  return match ? Number(match[1]) : null;
+  const n = firstNumber(text);
+  return n;
 }
 
 function parseDate(text) {
   const t = String(text || '').trim();
-  const m = t.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
-  if (m) return m[1] + '-' + String(m[2]).padStart(2, '0') + '-' + String(m[3]).padStart(2, '0');
-  const en = t.match(/([A-Z][a-z]+)\s+(\d{1,2}),\s*(\d{4})/);
-  if (en) {
-    const months = { january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 };
-    const month = months[en[1].toLowerCase()];
-    if (month) return en[3] + '-' + String(month).padStart(2, '0') + '-' + String(en[2]).padStart(2, '0');
+  const ymd = t.split('/');
+  if (ymd.length === 3 && ymd.every((part) => part.length <= 4 && part !== '')) {
+    return ymd[0] + '-' + String(ymd[1]).padStart(2, '0') + '-' + String(ymd[2]).padStart(2, '0');
+  }
+  const months = { january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 };
+  const parts = t.replace(',', ' ').split(' ').filter(Boolean);
+  for (let i = 0; i < parts.length; i += 1) {
+    const month = months[String(parts[i]).toLowerCase()];
+    if (month !== undefined && parts[i + 1] && parts[i + 2]) {
+      return parts[i + 2] + '-' + String(month).padStart(2, '0') + '-' + String(parts[i + 1]).padStart(2, '0');
+    }
   }
   return '';
 }
-
+/** 页面内：读 Amazon 搜索卡片（ASIN + 标题 + 价格 + 评分 + 评论数）。无正则、无转义。 */
 export const READ_CARDS = [
   '(function(){',
-  '  var cards=[...document.querySelectorAll("[data-component-type=\'s-search-result\']")];',
+  '  var NL=String.fromCharCode(10);',
+  '  function clean(s){ return String(s==null?\'\':s).split(NL).map(function(l){return l.trim();}).filter(Boolean).join(\' \'); }',
+  '  var cards=[...document.querySelectorAll(\'[data-component-type="s-search-result"]\')];',
   '  var out=[];',
-  '  for (var c of cards){',
-  '    var link=c.querySelector("a.a-link-normal[href*=\'/dp/\']");',
-  '    var href=link?(link.getAttribute("href")||""):"";',
-  '    var m=href.match(/\/dp\/([A-Z0-9]{10})/);',
-  '    var h2=c.querySelector("h2");',
-  '    var pe=c.querySelector(".a-price .a-offscreen");',
-  '    var re=c.querySelector("a[href*=\'#customerReviews\'] span");',
-  '    var ra=c.querySelector("[aria-label*=\'out of 5 stars\']");',
+  '  for (var i=0;i<cards.length;i++){',
+  '    var c=cards[i];',
+  '    var link=c.querySelector(\'a.a-link-normal[href*="/dp/"]\');',
+  '    var href=link?(link.getAttribute(\'href\')||\'\'):\'\';',
+  '    var parts=href.split(\'/dp/\');',
+  '    var asin=null;',
+  '    if(parts.length>1){ var seg=parts[1].split(\'?\')[0].split(\'/\')[0]; if(seg.length===10) asin=seg; }',
+  '    var h2=c.querySelector(\'h2\');',
+  '    var pe=c.querySelector(\'.a-price .a-offscreen\');',
+  '    var re=c.querySelector(\'a[href*="#customerReviews"] span\');',
+  '    var ra=c.querySelector(\'[aria-label*="out of 5 stars"]\');',
   '    out.push({',
-  '      asin:m?m[1]:null,',
-  '      title:h2?h2.innerText.replace(/\s+/g," ").trim():"",',
+  '      asin:asin,',
+  '      title:h2?clean(h2.innerText):\'\',',
   '      price:pe?pe.innerText:null,',
-  '      rating:ra?ra.getAttribute("aria-label"):null,',
+  '      rating:ra?ra.getAttribute(\'aria-label\'):null,',
   '      reviews:re?re.innerText:null,',
-  '      sponsored:/Sponsored/i.test(c.innerText.slice(0,400))',
+  '      sponsored:clean(c.innerText).slice(0,400).indexOf(\'Sponsored\')>=0',
   '    });',
   '  }',
   '  return JSON.stringify({count:cards.length, items:out});',
-  '})()'
+  '})()',
 ].join('\n');
 
+/** 页面内：读卖家精灵扩展的关键词市场分析表 + 顶部统计。无正则、无转义。 */
 export const READ_PANEL = [
   '(function(){',
-  '  var panel=document.querySelector("#main-sellersprite-extension");',
+  '  var NL=String.fromCharCode(10);',
+  '  function clean(s){ return String(s==null?\'\':s).split(NL).map(function(l){return l.trim();}).filter(Boolean).join(\' \'); }',
+  '  var panel=document.querySelector(\'#main-sellersprite-extension\');',
   '  if(!panel) return JSON.stringify({hasPanel:false});',
-  '  var txt=panel.innerText||"";',
-  '  var body=[...document.querySelectorAll("table")].find(function(t){return t.className.includes("vxe-table--body")});',
+  '  var txt=panel.innerText||\'\';',
+  '  var body=[...document.querySelectorAll(\'table\')].find(function(t){return t.className.includes(\'vxe-table--body\');});',
   '  var rows=[];',
   '  if(body){',
-  '    body.querySelectorAll("tr").forEach(function(tr){',
-  '      var tds=[...tr.querySelectorAll("td")];',
-  '      if(tds.length<20) return;',
-  '      var g=function(i){var td=tds[i];return td?(td.innerText||"").trim().replace(/\s+/g," "):""};',
+  '    var trs=body.querySelectorAll(\'tr\');',
+  '    for(var i=0;i<trs.length;i++){',
+  '      var tds=[...trs[i].querySelectorAll(\'td\')];',
+  '      if(tds.length<20) continue;',
+  '      var g=function(idx){var td=tds[idx];return td?clean(td.innerText):\'\'};',
   '      rows.push({',
   '        rank:g(2), title:g(4), brand:g(6), category:g(7), bsr:g(8),',
   '        variants:g(12), price:g(13), reviews:g(15), rating:g(17),',
   '        listed:g(21), sellers:g(22), fulfillment:g(23), delivery:g(24)',
   '      });',
-  '    });',
+  '    }',
   '  }',
-  '  var grab=function(re){var m=txt.match(re);return m?m[1].trim():null};',
+  '  function grab(label){',
+  '    var i=txt.indexOf(label);',
+  '    if(i<0) return null;',
+  '    var parts=clean(txt.slice(i+label.length)).split(\' \').filter(Boolean);',
+  '    return parts.length?parts[0]:null;',
+  '  }',
   '  var stats={',
-  '    asinCount:grab(/ASIN数量\s*([\d,]+)/),',
-  '    avgBsr:grab(/平均BSR\s*([\d,]+)/),',
-  '    avgPrice:grab(/平均价格\s*\$?([\d,.]+)/),',
-  '    avgRating:grab(/平均评分\s*([\d.]+)/),',
-  '    avgReviews:grab(/平均评分数\s*([\d,]+)/),',
-  '    avgListingDays:grab(/平均上架天数\s*([^\n]+)/)',
+  '    asinCount:grab(\'ASIN数量\'),',
+  '    totalUnits:grab(\'总销量\'),',
+  '    totalRevenue:grab(\'总销售额\'),',
+  '    avgBsr:grab(\'平均BSR\'),',
+  '    avgPrice:grab(\'平均价格\'),',
+  '    avgRating:grab(\'平均评分\'),',
+  '    avgReviews:grab(\'平均评分数\'),',
+  '    avgListingDays:grab(\'平均上架天数\')',
   '  };',
-  '  var hasLoadMore=/加载更多/.test(txt);',
-  '  return JSON.stringify({hasPanel:true, rows:rows, stats:stats, hasLoadMore:hasLoadMore});',
-  '})()'
+  '  return JSON.stringify({hasPanel:true, rows:rows, stats:stats, hasLoadMore:txt.indexOf(\'加载更多\')>=0});',
+  '})()',
 ].join('\n');
 
+/** 点击扩展面板里的「加载更多」。 */
 export const CLICK_MORE = [
   '(function(){',
-  '  var panel=document.querySelector("#main-sellersprite-extension");',
-  '  if(!panel) return "NOPANEL";',
-  '  var els=[...panel.querySelectorAll("a,button,span,div")];',
-  '  var hit=els.filter(function(e){return e.children.length===0 && (e.innerText||"").trim()==="加载更多"})[0];',
-  '  if(!hit) return "NONE";',
-  '  hit.click();',
-  '  return "CLICKED";',
-  '})()'
+  '  var panel=document.querySelector(\'#main-sellersprite-extension\');',
+  '  if(!panel) return \'NOPANEL\';',
+  '  var els=[...panel.querySelectorAll(\'a,button,span,div\')];',
+  '  for(var i=0;i<els.length;i++){',
+  '    var e=els[i];',
+  '    if(e.children.length===0 && String(e.innerText||\'\').trim()===\'加载更多\'){ e.click(); return \'CLICKED\'; }',
+  '  }',
+  '  return \'NONE\';',
+  '})()',
 ].join('\n');
-
 /**
  * 采集一个关键词。
  * @param {{keyword:string, marketplace?:string, maxRows?:number, loadMoreRounds?:number, timeoutSec?:number}} input
  */
-export async function collectKeywordRows({ keyword, marketplace = 'US', maxRows = 60, loadMoreRounds = 4, timeoutSec = 45 } = {}) {
+export async function collectKeywordRows({ keyword, marketplace = 'US', maxRows = 60, loadMoreRounds = 3, timeoutSec = 60 } = {}) {
   const kw = String(keyword || '').trim();
   if (!kw) {
     const error = new Error('缺少关键词');
@@ -145,8 +169,22 @@ export async function collectKeywordRows({ keyword, marketplace = 'US', maxRows 
   const domain = AMAZON_DOMAINS[String(marketplace || 'US').toUpperCase()] || AMAZON_DOMAINS.US;
   const url = 'https://www.' + domain + '/s?k=' + encodeURIComponent(kw);
   let tabId = null;
+  let ownsTab = true;
   try {
-    tabId = await openTab(url);
+    // 复用同关键词的已有标签页：卖家精灵扩展只在这个页面已经打开、且被激活过的窗口里
+    // 才会把关键词分析面板渲染出来（新开的后台标签页实测不渲染）。
+    const existing = (await listTabs()).find((tab) => {
+      if (!tab.url || !tab.url.includes('/s?k=')) return false;
+      const q = decodeURIComponent(tab.url.split('/s?k=')[1].split('&')[0]).split('+').join(' ').trim().toLowerCase();
+      return q === kw.toLowerCase();
+    });
+    if (existing) {
+      tabId = existing.id;
+      ownsTab = false;
+      await focusTab(tabId).catch(() => {});
+    } else {
+      tabId = await openTab(url);
+    }
     // 必须把标签页切到前台：后台标签页被 Chrome 节流，扩展不会渲染数据表。
     await focusTab(tabId).catch(() => {});
     const ready = await waitFor(tabId, 'document.querySelectorAll("[data-component-type=\'s-search-result\']").length > 2', { timeout: timeoutSec });
@@ -155,8 +193,7 @@ export async function collectKeywordRows({ keyword, marketplace = 'US', maxRows 
       error.code = 'PAGE_NOT_READY';
       throw error;
     }
-    // 扩展面板是**异步渲染**的：元素先出现，表格与统计要等它自己的接口回来。
-    // 必须等到表体真的在（否则会读到空面板、误判成「没数据」）。
+    // 扩展面板是异步渲染的：等表体真的在
     const panelReady = await waitFor(
       tabId,
       'document.querySelector("#main-sellersprite-extension table.vxe-table--body") !== null',
@@ -173,9 +210,9 @@ export async function collectKeywordRows({ keyword, marketplace = 'US', maxRows 
       const before = panel.rows.length;
       const clicked = await runJson(tabId, CLICK_MORE, { timeout: 30000, strict: false });
       if (clicked !== 'CLICKED') break;
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       panel = await runJson(tabId, READ_PANEL, { timeout: 40000, strict: false });
-      if (panel.rows.length <= before) break;
+      if (!panel || panel.rows.length <= before) break;
     }
 
     const cards = await runJson(tabId, READ_CARDS, { timeout: 40000, strict: false });
@@ -206,13 +243,13 @@ export async function collectKeywordRows({ keyword, marketplace = 'US', maxRows 
         asin: card ? card.asin : null,
         title: item.title,
         brand: item.brand,
-        bsr: parseNumber(item.bsr),
-        price: parseNumber(item.price),
+        bsr: firstNumber(item.bsr),
+        price: firstNumber(item.price),
         reviews: parseReviews(item.reviews),
         rating: parseRating(item.rating),
-        variants: parseNumber(item.variants),
+        variants: firstNumber(item.variants),
         listingDate: parseDate(item.listed),
-        sellers: parseNumber(item.sellers),
+        sellers: firstNumber(item.sellers),
         fulfillment: item.fulfillment,
         deliveryTime: item.delivery,
         categoryLabel: item.category,
@@ -242,7 +279,7 @@ export async function collectKeywordRows({ keyword, marketplace = 'US', maxRows 
     wrapped.code = 'COLLECT_FAILED';
     throw wrapped;
   } finally {
-    if (tabId) await closeTab(tabId).catch(() => {});
+    if (tabId && ownsTab) await closeTab(tabId).catch(() => {});
   }
 }
 
