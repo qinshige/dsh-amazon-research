@@ -18,6 +18,10 @@
   return JSON.stringify({
     title: document.title,
     marketPath: (txt.match(/Tools & Home Improvement[^\n]*/) || [])[0] || null,
+    // 市场名称：类目面包屑（显式传 nodeIdPath 时，类目名只能从这里取）
+    marketName: (function(){var m = txt.match(/市场名称:\s*([^\n]+)/); if(!m) return null; var s = m[1].split('TOP商品明细')[0].split('加入产品库')[0].trim(); return s || null;})(),
+    // 面包屑最后一段 = 叶子类目名
+    leafName: (function(){var m = txt.match(/市场名称:\s*([^\n]+)/); if(!m) return null; var s = m[1].split('TOP商品明细')[0].split('加入产品库')[0]; var parts = s.split('›').map(function(x){return x.trim()}).filter(Boolean); return parts.length ? parts[parts.length-1] : null;})(),
     sampleProducts: grabNum('样本商品数'),
     sampleBrandsSellers: grab('样本品牌数/卖家数'),
     avgBsr: grabNum('平均BSR'),

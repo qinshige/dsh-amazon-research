@@ -7,6 +7,7 @@ import { evaluateBatch, evaluateCandidate, normalizeCandidate } from '../host/se
 import { buildSelectionPlan, amazonDomain } from '../host/selection/channels.js';
 import { suggestDifferentiation } from '../host/selection/differentiate.js';
 import { inputFingerprint, parseCsv, screenCandidates } from '../host/selection/pipeline.js';
+import { parseDimsCm, parseWeightG, productsToSelectionRows } from '../host/selection/from-products.js';
 import { decide, evaluateProfileFit } from '../host/selection/profiles.js';
 import { buildDecisionBrief, compareChannels } from '../host/selection/brief.js';
 import { sensitivity } from '../host/selection/report.js';
@@ -209,6 +210,33 @@ test('体检落盘：report.md 含四途径、十维、否决、差异化与追�
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('采集转换：重量/尺寸解析 + 类目聚合 + 新品占比口径', () => {
+  assert.equal(parseWeightG('15.2 pounds'), 6895);
+  assert.equal(parseWeightG('11.3 ounces'), 320);
+  assert.equal(parseWeightG('0.25 kg'), 250);
+  assert.equal(parseWeightG('无'), null);
+  const dims = parseDimsCm('15 x 10.5 x 10.5 inches');
+  assert.equal(dims.l, 38);
+  assert.equal(dims.h, 27);
+  assert.equal(parseDimsCm('x'), null);
+
+  const market = { concentration: { top3BrandCrn: 0.887 }, newRatio: { l1: 0.1212 }, structure: { returnRatio: 2.51 } };
+  const products = [
+    { asin: 'B0AAA', title: 'A', brand: 'X', price: 20, rating: 4.5, reviews: 800, monthlySales: 500, monthlyRevenue: 10000, variants: 3, listedDate: '2025-01-01', bsrBig: 1200, fbaFee: 4.1, margin: 55, packWeight: '15.2 pounds', packDims: '15 x 10.5 x 10.5 inches', fulfillment: 'FBA', sellers: 2 },
+    { asin: 'B0BBB', title: 'B', brand: 'Y', price: 30, rating: 4.0, reviews: 200, monthlySales: 100, monthlyRevenue: 3000, variants: 1, listedDate: '2026-05-01', bsrBig: 9000, fbaFee: 5.3, margin: 40 },
+  ];
+  const rows = productsToSelectionRows({ market, products, categoryPath: 'Cat' });
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].重量g, 6895);
+  assert.equal(rows[0].长cm, 38);
+  assert.equal(rows[0]['品牌集中度%'], 88.7);
+  assert.equal(rows[0]['前10评价数'], 500);
+  assert.equal(rows[0]['新品占比%'], 12.1);
+  assert.equal(rows[0]['新品占比口径'], 'L1(1个月)');
+  assert.ok(Math.abs(rows[0].退货率 - 0.0251) < 1e-9);
+  assert.equal(rows[1].重量g, null, '缺重量保持未知，不估算');
 });
 
 test('渠道对照：同一品在 FBA 亏、TikTok Shop 能跑', () => {

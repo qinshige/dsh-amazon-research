@@ -123,6 +123,18 @@ export async function openTab(url) {
   return id;
 }
 
+/**
+ * 激活标签页（置为前台标签页）。
+ *
+ * 为什么需要：浏览器扩展只在**前台标签页**跑完整逻辑；后台标签页被 Chrome 节流，
+ * 卖家精灵扩展的关键词分析表就不会渲染（实测：新开后台标签页等 60s 表格不出现，
+ * 同一页面在前台则正常渲染）。
+ */
+export async function focusTab(tabId) {
+  const out = await osa(['focus', tabId], 30_000);
+  return String(out || '').trim();
+}
+
 /** 在已有标签页执行 JS，返回原始字符串 */
 export async function runJs(tabId, js, { timeout = 120_000 } = {}) {
   return osa(['js', tabId, js], timeout);

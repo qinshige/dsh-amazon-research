@@ -7,6 +7,7 @@ import { getPlatform, providerSupportsPlatform, providersForPlatform, resolveSit
 import { judgeProfit, landedCost, pickTierPrice } from './sourcing/cost-model.js';
 import { buildSelectionPlan } from './selection/channels.js';
 import { parseCsv, screenCandidates } from './selection/pipeline.js';
+import { productsToSelectionRows } from './selection/from-products.js';
 
 const OUTPUT_SCHEMA = {
   type: 'object',
@@ -526,6 +527,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
       description: [
         '选品全流程（四途径 → 九策略 → 十维 → 差异化）：action=plan 出路线图，action=screen 对候选 ASIN 做十维体检、一票否决、分档与差异化建议。',
         'action=plan：按站点/类目生成站内 7 个榜单入口（Best Sellers / New Releases / Movers / Most Wished For / Gift Ideas / Deals / 热搜词）、站外与软件渠道、九种选品策略的适用性与步骤、十维采集清单。免费，不取数。',
+        'action=collect：走卖家精灵「查竞品」页抓该细分类目的 Top 商品，自动生成采集表行（ASIN/售价/月销/月销售额/评分数/评分/变体数/FBA费/毛利率/上架时间/商品重量/包装尺寸 + 类目集中度/新品占比/前十评价数），可直接喂给 action=screen。走网页登录态链路，占用卖家精灵网页查询次数，不消耗 MCP 额度。',
         'action=screen：接收采集表（rows 数组或 csv 文本，中英文列名均可），逐品输出 达标/警戒/不达标/未知、一票否决、一档/二档/三档/待复核/淘汰、全成本净利率、敏感性与差异化方向；报告开头是决策单（做/小批量测/先补数/不做、致命项、安全边际、首批资金与回本、可攻击面）+ 渠道对照（同一品在 amazon-fba / amazon-fbm / tiktok-shop 的净利率），新手画像额外输出教练层。落盘 report.md / selection.csv / provenance.json（原始输入 + SHA-256 输入指纹 + 逐项判定），报告第八章给出每个 KPI 的输入列与来源。免费，不消耗数据服务额度。',
         '⚠️ 渠道决定生死：售价 $5.49 的小件在 Amazon FBA 因 $3.22 配送费必亏，在 TikTok Shop（佣金 6%、无 FBA 费）可赚。做 TK / 独立站必须传 channel=tiktok-shop。',
         '纪律：缺失字段记「未知」不计入命中率；采购价必须来自 1688 真实报价；榜单数字必须真实抓取，禁止用记忆补。',
@@ -533,7 +535,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['plan', 'screen'], description: 'plan=路线图（免费）；screen=体检候选品（免费）' },
+          action: { type: 'string', enum: ['plan', 'collect', 'screen'], description: 'plan=路线图（免费）；collect=自动采集采集表（走卖家精灵网页）；screen=体检候选品（免费）' },
           marketplace: { type: 'string', description: 'Amazon 站点，默认取插件配置（US）' },
           category: { type: 'string', description: '类目关键词或类目名（用于拼榜单链接与报告标题）' },
           nodeIdPath: { type: 'string', description: '类目节点路径（如 11091801:11974521:8882489011），用于拼榜单链接' },
@@ -549,6 +551,8 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
             items: { type: 'object', additionalProperties: true },
           },
           csv: { type: 'string', description: 'screen 用：CSV 文本（与 rows 二选一），首行表头' },
+          productLimit: { type: 'integer', minimum: 10, maximum: 100, description: 'collect 用：抓多少个 Top 商品，默认 50' },
+          thenScreen: { type: 'boolean', description: 'collect 用：采集完直接体检并出报告（默认 true）' },
           fx: { type: 'number', description: '汇率（1 USD = ? CNY），默认 7.1' },
           title: { type: 'string', description: '报告标题，默认用 category 或「选品体检」' },
           source: { type: 'string', description: '候选来源标注，如「BS 榜 / 竞品店铺 / 手动采集」' },
@@ -586,6 +590,72 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
             return err('INVALID_ARGS', 'plan 需要 category、nodeIdPath 或 keyword 之一', '例：{action:"plan", category:"vases", marketplace:"US"}');
           }
           return { ok: true, action, outputRoot, ...buildSelectionPlan(planInput) };
+        }
+
+        if (action === 'collect') {
+          if (!category && !nodeIdPath) {
+            return err('INVALID_ARGS', 'collect 需要 category 或 nodeIdPath',
+              '例：{action:"collect", category:"glove clips", marketplace:"US"}');
+          }
+          const productLimit = asInt(args?.productLimit, 50, 10, 100);
+          try {
+            const run = await selectCategoryWeb({
+              marketplace,
+              category: category || undefined,
+              nodeIdPath: nodeIdPath || undefined,
+              limit: productLimit,
+              unitCost: null,
+              costs: [],
+              outputRoot,
+              dataDir,
+            });
+            const market = run.market || null;
+            const products = (market && market.products) || [];
+            const rows = productsToSelectionRows({
+              market,
+              products,
+              marketplace,
+              categoryPath: (market && market.label) || category || '',
+              source: '卖家精灵查竞品页（' + (market && market.nodeIdPath ? market.nodeIdPath : '') + '）',
+            });
+            const collected = {
+              ok: true,
+              action,
+              runId: run.runId,
+              dir: run.dir,
+              count: rows.length,
+              label: (market && market.label) || category || '',
+              nodeIdPath: (market && market.nodeIdPath) || '',
+              rows,
+              warnings: run.warnings || [],
+            };
+            if (args?.thenScreen === false || rows.length === 0) {
+              return collected;
+            }
+            const screened = await screenCandidates({
+              rows,
+              title: asString(args?.title) || (market && market.label) || '选品体检',
+              marketplace,
+              fx: typeof args?.fx === 'number' && Number.isFinite(args.fx) && args.fx > 0 ? args.fx : 7.1,
+              outputRoot,
+              dataDir,
+              source: collected.source,
+              profile: asString(args?.profile) || 'beginner',
+              channel: asString(args?.channel) || 'amazon-fba',
+              targetMonthlyUnits: typeof args?.targetMonthlyUnits === 'number' && Number.isFinite(args.targetMonthlyUnits) ? args.targetMonthlyUnits : null,
+              plan: null,
+            });
+            return { ...collected, screen: { runId: screened.runId, dir: screened.dir, summary: screened.summary, top: screened.top } };
+          } catch (error) {
+            const code = typeof error?.code === 'string' ? error.code : 'COLLECT_FAILED';
+            const message = String(error?.message ?? error);
+            const hint = code === 'NOT_LOGGED_IN'
+              ? '请在 Chrome 里登录 www.sellersprite.com 后重试。'
+              : code === 'NODE_NOT_FOUND'
+                ? '换英文类目词重试，或直接传 nodeIdPath。'
+                : undefined;
+            return err(code, message, hint);
+          }
         }
 
         if (action !== 'screen') {

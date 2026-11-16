@@ -50,12 +50,23 @@ function toProducts(rows, limit = null) {
     monthlyRevenue: row.revenue,
     launchDays: null,
     listedDate: row.listedDate,
+    bsrBig: row.bsrBig ?? null,
     bsrCategory: row.bsrCategory,
+    bsrCategoryRank: row.bsrCategoryRank ?? null,
     fbaFee: row.fbaFee,
     margin: row.margin,
-    weight: row.weight ?? null,
+    qa: row.qa ?? null,
+    monthNewReviews: row.monthNewReviews ?? null,
+    reviewRate: row.reviewRate ?? null,
+    lqs: row.lqs ?? null,
+    fulfillment: row.fulfillment ?? null,
+    buyerShipping: row.buyerShipping ?? null,
+    weight: row.itemWeight ?? row.weight ?? null,
     packWeight: row.packWeight ?? null,
-    weightG: parseWeightG(row.weight),
+    itemDims: row.itemDims ?? null,
+    packDims: row.packDims ?? null,
+    sizeTier: row.sizeTier ?? null,
+    weightG: parseWeightG(row.itemWeight ?? row.weight),
     packWeightG: parseWeightG(row.packWeight),
     variants: row.variants,
     childListings: row.childCount,
@@ -378,6 +389,9 @@ export async function selectCategoryWeb({ marketplace = 'US', category, nodeIdPa
   const commonPath = commonNodePath(list.rows.map((row) => row.nodeIdPath).filter(Boolean));
   let resolvedPath = nodeIdPath ? String(nodeIdPath) : commonPath || list.rows[0].nodeIdPath;
   let resolvedLabel = category || resolvedPath;
+  // 显式传 nodeIdPath 时，选市场列表只列子级、没有这个节点，
+  // 类目名要从类目报告页的「市场名称」面包屑取。
+  let reportLabel = null;
   const exactRow = list.rows.find((row) => row.nodeIdPath === resolvedPath);
   if (exactRow) resolvedLabel = exactRow.name || resolvedLabel;
   if (!resolvedPath) {
@@ -393,6 +407,10 @@ export async function selectCategoryWeb({ marketplace = 'US', category, nodeIdPa
   // 2) 类目大盘
   bump('market-research:类目报告');
   const report = await sellerspriteWebProvider.nodeReport({ nodeIdPath: resolvedPath, log });
+  reportLabel = report.leafName || report.marketName || null;
+  if (!category && reportLabel) resolvedLabel = reportLabel;
+  reportLabel = report.leafName || report.marketName || null;
+  if (!category && reportLabel) resolvedLabel = reportLabel;
 
   // 3) Top 商品
   // 查竞品默认按父体销量排序且「展示所有变体」：同一父体的每个子体各占一行，
@@ -737,11 +755,16 @@ export async function selectCategoryWeb({ marketplace = 'US', category, nodeIdPa
     candidates,
     score: { total: score.total, max: score.max, normalized: score.normalized, grade: score.grade, dimensions: score.dimensions, notes: score.notes },
     market: {
+      label: resolvedLabel,
+      nodeIdPath: resolvedPath,
       totals: market.totals,
       avgs: market.avgs,
       concentration: market.concentration,
       structure: market.structure,
       newRatio: market.newRatio,
+      products: market.products || [],
+      topProductsSource: topProducts.source || null,
+      topProductsCount: (market.products || []).length,
       newItems: market.newItems,
       grossMargin: market.grossMargin,
       scaleBasis: market.scaleBasis,

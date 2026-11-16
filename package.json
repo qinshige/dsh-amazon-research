@@ -1,6 +1,6 @@
 {
   "name": "dsh-amazon-research",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "多平台选品研究（DeepSeek Harness 插件）：Amazon 类目数据、Trendyol 公开页面样本、独立评分与研究报告",
   "keywords": [
     "dsh",
