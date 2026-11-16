@@ -226,7 +226,7 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
       }
       push('');
     }
-  push('### 1.4 分档统计与候选', '');
+  push('### 1.4 分档统计与候选（插件的选品结论）', '');
   push('**分档：' + TIER_ORDER.map((tier) => tier + ' ' + (summary.tiers[tier] || 0)).join(' ｜ ') + '**', '');
   if (summary.decisions) {
     push('**结论分布：' + Object.entries(summary.decisions).map(([key, value]) => key + ' ' + value).join(' ｜ ') + '**', '');
@@ -236,7 +236,7 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
   const picks = results.filter((item) => item.tier === '一档' || item.tier === '二档').slice(0, 5);
   if (picks.length > 0) {
     push('');
-    push('**优先候选（一档 / 二档，最多 5 个）**：', '');
+    push('**优先候选（一档 / 二档，最多 5 个）** —— 这些才是插件选出来的品：', '');
     push(...table(['ASIN', '商品', '档位', '结论', '售价', '净利率', 'KPI 命中率', '理由'], picks.map((item) => [
       item.asin || '—', item.name || '—', item.tier, item.decision ? item.decision.decision : '—', money(item.priceUSD), pct(item.margin, 1), pct(item.hitRate), item.tierReason,
     ])));

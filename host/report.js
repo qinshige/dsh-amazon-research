@@ -950,9 +950,11 @@ export function renderCategoryReport(params = {}) {
   // 九、选品落地（四途径 → 九策略 → 十维 → 差异化）
   push(...renderCategorySelectionSection(view));
 
-  // 附录：Top 产品
+  // 附录：类目热销 Top（对标样本，不是推荐品）
   if (view.products.length > 0) {
-    push('## 附录：Top 10 产品', '');
+    push('## 附录：类目热销 Top 10（对标样本，不是推荐品）', '');
+    push('> 这 10 个是**该细分类目里销量最高的链接**（按月销额排序，取自卖家精灵「查竞品」页），属于**竞品 / 对标样本**，插件没有对它们做过评分或筛选。', '');
+    push('> 插件的推荐结论不在这里：类目级结论见第一节五维评分与第九章落地动作；单品级推荐见 `research_product_select` 体检后的「1.4 分档统计与候选」。', '');
     const rows = [...view.products].sort((a, b) => {
       const revenueA = num(a.monthlyRevenue) ?? 0;
       const revenueB = num(b.monthlyRevenue) ?? 0;
