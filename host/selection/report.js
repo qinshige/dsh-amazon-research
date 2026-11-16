@@ -152,13 +152,15 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
     push('**致命项**：' + (fatal.length > 0 ? fatal.join('；') : '无（仍需人工查专利/认证）'), '');
     if (brief.safety) {
       push('**安全边际**（目标净利率 ' + pct(brief.safety.targetMargin, 0) + '）：', '');
+      const s = brief.safety;
+      const feas = s.feasible !== false;
       push(...table(['项目', '阈值', '当前'], [
-        ['采购价上限', cny(brief.safety.maxPurchaseCNY), cny(brief.safety.currentPurchaseCNY)],
-        ['售价下限', money(brief.safety.minPriceUSD), money(brief.safety.currentPriceUSD)],
-        ['广告上限', pct(brief.safety.maxAdRate, 1), '—'],
-        ['退货上限', pct(brief.safety.maxReturnRate, 1), '—'],
+        ['采购价上限', feas && s.maxPurchaseCNY > 0 ? cny(s.maxPurchaseCNY) : '不可达', cny(s.currentPurchaseCNY)],
+        ['售价下限', money(s.minPriceUSD), money(s.currentPriceUSD)],
+        ['广告上限', feas && s.maxAdRate > 0 ? pct(s.maxAdRate, 1) : '不可达', '—'],
+        ['退货上限', feas && s.maxReturnRate > 0 ? pct(s.maxReturnRate, 1) : '不可达', '—'],
       ]));
-      if (brief.safety.feasible === false) push('> 按目标净利率，当前成本结构已无法覆盖，需提价、换供应链或放弃。', '');
+      if (!feas) push('> **按目标净利率 ' + pct(s.targetMargin, 0) + '，当前售价与成本结构无法覆盖**（采购价为 0 也达不到）：必须提价到 ' + money(s.minPriceUSD) + ' 以上，或换材料/改包装/换供应商。', '');
       push('');
     } else {
       push('**安全边际**：缺采购价或售价，先补 1688 报价再算。', '');

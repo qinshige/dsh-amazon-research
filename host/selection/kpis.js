@@ -118,6 +118,11 @@ function riskText(value) {
   return /是|有|高|疑似|存在|风险|y|yes/i.test(str(value));
 }
 
+/** 「未检索 / 待确认 / 未取到」这类占位值不能当成「无风险」，一律记未知。 */
+function isPendingValue(text) {
+  return /未检索|未查|待查|待确认|待核实|未知|需核查|需人工|需 FTO|需FTO|TBD/i.test(String(text || ''));
+}
+
 function levelOf(path) {
   const text = str(path);
   if (!text) return 0;
@@ -367,12 +372,14 @@ export function evaluateCandidate(row, { fx = 7.1, smallVolumeUnits = 200 } = {}
 
   // 10) 侵权 / 认证 ------------------------------------------------------
   if (!c.patentRisk) add(check('patent', 10, '专利/商标风险', UNKNOWN, '—', '必须人工查 WIPO / 商标'));
+  else if (isPendingValue(c.patentRisk)) add(check('patent', 10, '专利/商标风险', UNKNOWN, c.patentRisk, '尚未完成检索，不能按「无风险」计'));
   else if (riskText(c.patentRisk)) {
     add(check('patent', 10, '专利/商标风险', BAD, c.patentRisk));
     veto('PATENT', '专利 / 商标风险', c.patentRisk);
   } else add(check('patent', 10, '专利/商标风险', OK, c.patentRisk));
 
   if (!c.certification) add(check('certification', 10, '认证要求', UNKNOWN, '—'));
+  else if (isPendingValue(c.certification)) add(check('certification', 10, '认证要求', UNKNOWN, c.certification, '未确认证书状态'));
   else if (/缺|未|无|不适用|不需要|无需/.test(c.certification) || /^(无|none)$/i.test(c.certification)) {
     add(check('certification', 10, '认证要求', OK, c.certification));
   } else add(check('certification', 10, '认证要求', WARN, c.certification, '需确认证书是否拿得到'));

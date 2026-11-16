@@ -79,9 +79,9 @@ export function suggestDifferentiation(candidate = {}) {
 
   // 7) 品牌集中度高 —— 换人群/场景切入
   const concentration = get('concentration');
-  if (concentration && concentration.status === '警戒') {
+  if (concentration && (concentration.status === '警戒' || concentration.status === '不达标')) {
     add(4, AXIS.INTERNAL, '人群 / 场景细分切入',
-      '品牌集中度 ' + concentration.value + '，正面硬刚不划算',
+      '品牌集中度 ' + concentration.value + (concentration.status === '不达标' ? '，头部高度垄断，正面竞争不划算' : '，头部未完全垄断'),
       '换人群（老人/儿童/宠物/户外）或换场景重新定义卖点与关键词');
   }
 

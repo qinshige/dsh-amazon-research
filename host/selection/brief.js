@@ -50,8 +50,9 @@ export function safetyMargin(candidate, profile, fx = 7.1) {
   const minPriceUSD = fixed / denominator;
   const maxAdRate = 1 - commRate - retRate - fixed / price - target;
   const maxReturnRate = 1 - commRate - adRate - fixed / price - target;
+  const feasible = maxPurchaseUSD > 0 && maxAdRate > 0 && maxReturnRate > 0;
   return {
-    feasible: maxPurchaseUSD > 0 && maxAdRate > 0 && maxReturnRate > 0,
+    feasible,
     targetMargin: target,
     currentMargin: candidate.margin,
     headroom: candidate.margin === null ? null : candidate.margin - target,
@@ -100,7 +101,8 @@ function attackSurface(candidate) {
   const reviewBarrier = checkOf(candidate, 'reviewBarrier');
   const rating = checkOf(candidate, 'rating');
   const priceBand = checkOf(candidate, 'priceBand');
-  if (concentration && concentration.status !== '达标') items.push('Top3 品牌集中度 ' + concentration.value + '，头部未完全垄断，可用人群/场景切入');
+  if (concentration && concentration.status === '不达标') items.push('Top3 品牌集中度 ' + concentration.value + '，头部高度垄断：正面硬刚不划算，只能换人群/场景/价格带切入');
+  else if (concentration && concentration.status === '警戒') items.push('Top3 品牌集中度 ' + concentration.value + '，头部未完全垄断，可用人群/场景切入');
   if (reviewBarrier && reviewBarrier.status === '达标') items.push('类目前十评价 ' + reviewBarrier.value + '（< 1000），评论壁垒不高');
   if (rating && rating.status === '警戒') items.push('平均评分 ' + rating.value + '，质量/体验有改进空间');
   if (priceBand && priceBand.status !== '达标') items.push('售价 ' + priceBand.value + '，价格带存在空隙（需用榜单确认）');
@@ -117,7 +119,7 @@ function actionsFor(candidate, profile, safety, batch) {
   if (profile.id === 'beginner') {
     return [
       '今天（30 分钟）：用 WIPO / 商标局快筛产品核心词与品牌词，发现相似外观/商标即停。',
-      '本周（2 小时）：1688 询 3 家，确认采购价 ≤ ' + (priceCNY === null ? '安全边际价' : cny(priceCNY)) + '、MOQ、交期、能否改款。',
+      '本周（2 小时）：1688 询 3 家，确认采购价 ≤ ' + (priceCNY === null || priceCNY <= 0 ? '安全边际价（当前结构不可达，先改售价或成本）' : cny(priceCNY)) + '、MOQ、交期、能否改款。',
       '下周：打样 ' + (batch && batch.available ? batch.variantCount : 2) + ' 个变体 × 50 件（约 ' + (batch && batch.available ? cny(batch.sampleCapitalCNY) : '按样品') + '），拍主图；首批不超过 ' + (budget === null ? '画像上限' : cny(budget)) + '。',
       '上架前：查认证要求与类目审核；1688 图片不要直接用。',
     ];
@@ -138,7 +140,9 @@ function actionsFor(candidate, profile, safety, batch) {
 
 function changeMyMind(candidate, profile, safety, batch) {
   const items = [];
-  if (safety && safety.maxPurchaseCNY !== null && candidate.inputs && candidate.inputs.purchaseCNY !== null) {
+  if (safety && safety.feasible === false) {
+    items.push('按当前售价与成本结构，任何采购价都达不到目标净利率 —— 需把售价提到 ' + money(safety.minPriceUSD) + ' 以上，或改结构/换供应链');
+  } else if (safety && safety.maxPurchaseCNY !== null && candidate.inputs && candidate.inputs.purchaseCNY !== null) {
     items.push('采购价超过 ' + cny(safety.maxPurchaseCNY) + '（当前 ' + cny(candidate.inputs.purchaseCNY) + '）就放弃');
   }
   if (candidate.flags && /强|季节|节日/.test(candidate.flags.seasonality || '')) {

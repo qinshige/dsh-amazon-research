@@ -211,6 +211,38 @@ test('体检落盘：report.md 含四途径、十维、否决、差异化与追�
   }
 });
 
+test('高集中度时不能再写「头部未完全垄断」', () => {
+  const candidate = evaluateCandidate({ ...baseRow, '品牌集中度%': 86 });
+  candidate.profileFit = evaluateProfileFit(candidate, 'beginner');
+  candidate.decision = decide(candidate, candidate.profileFit, 'beginner');
+  const brief = buildDecisionBrief({ candidate, profile: 'beginner', fx: 7.1 });
+  assert.ok(brief.attackSurface.some((item) => item.includes('高度垄断')));
+  assert.ok(!brief.attackSurface.some((item) => item.includes('头部未完全垄断')));
+});
+
+test('安全边际不可达时不输出负数阈值', () => {
+  const candidate = evaluateCandidate({ ...baseRow, 售价USD: 5.49, 采购价CNY: 2.96, 重量g: 56, 退货率: 2.51 });
+  candidate.profileFit = evaluateProfileFit(candidate, 'beginner');
+  candidate.decision = decide(candidate, candidate.profileFit, 'beginner');
+  const brief = buildDecisionBrief({ candidate, profile: 'beginner', fx: 7.1 });
+  assert.equal(brief.safety.feasible, false);
+  assert.ok(brief.safety.maxPurchaseCNY < 0);
+  assert.ok(brief.changeMyMind.some((item) => item.includes('达不到目标净利率')));
+  assert.ok(brief.actions.every((item) => !/≤ ¥-/.test(item)));
+});
+
+test('未检索的专利/认证不能被判成达标', () => {
+  const pending = evaluateCandidate({ ...baseRow, 专利风险: '未检索（类目内有专利款，需 FTO）', 认证: '待确认' });
+  const patent = pending.checks.find((item) => item.key === 'patent');
+  const cert = pending.checks.find((item) => item.key === 'certification');
+  assert.equal(patent.status, '未知');
+  assert.equal(cert.status, '未知');
+  assert.equal(pending.vetoes.length, 0);
+
+  const risky = evaluateCandidate({ ...baseRow, 专利风险: '疑似落入 US 外观专利' });
+  assert.ok(risky.vetoes.some((item) => item.code === 'PATENT'));
+});
+
 test('卖家画像：同一个品对新手不适合、对进阶可测', () => {
   const row = {
     ...baseRow,
