@@ -792,7 +792,10 @@ export async function searchOffers({ keyword, limit = 20, log = () => {} } = {})
       source: SOURCE_SEARCH,
     };
   } finally {
-    await releaseTab(tabId);
+    // 复用标签页：**不要在这里关**。
+    //   - 成功：留着下次复用（重开反而更容易触发 1688 滑块验证）；
+    //   - 验证页失败：resetDetailTab() 已经把它关掉并置空；
+    //   - 其他失败：标签页留着，下次调用会重新导航到新 offer。
   }
 }
 
@@ -802,6 +805,21 @@ export async function searchOffers({ keyword, limit = 20, log = () => {} } = {})
  * @param {{url:string, log?:Function}} opts
  * @returns {Promise<Object>} 详情页字段（阶梯价/起批量/材质/件重/供应商/一件代发…）
  */
+/** 详情页共用的标签页（复用，避免每个 offer 都开新标签 → 触发滑块验证）。 */
+let detailTabId = null;
+
+/** 详情页最小间隔（毫秒）：1688 对高频访问会弹滑块验证。 */
+const DETAIL_MIN_INTERVAL_MS = 2500;
+let lastDetailAt = 0;
+
+/** 丢弃当前详情页标签页（遇到验证页时调用，下次重新开一个干净的）。 */
+export async function resetDetailTab() {
+  if (detailTabId !== null) {
+    await closeTab(detailTabId).catch(() => {});
+    detailTabId = null;
+  }
+}
+
 export async function fetchOfferDetail({ url, log = () => {} } = {}) {
   livePush({ phase: 'sourcing', level: 'info', message: '进 1688 详情页验证阶梯价', url });
   if (!url) throw new Error('缺少 url');
@@ -809,7 +827,14 @@ export async function fetchOfferDetail({ url, log = () => {} } = {}) {
   if (!offerId) throw new Error('无法从 url 解析 offerId：' + url);
   const cleanUrl = DETAIL_ENDPOINT + offerId + '.html';
   log('打开 1688 详情页：' + cleanUrl);
-  const tabId = await openTab(cleanUrl);
+  // 复用同一个标签页：每个 offer 开新标签会堆出上百个标签页并触发 1688 滑块验证。
+  let tabId = detailTabId;
+  if (tabId === null) {
+    tabId = await openTab(cleanUrl);
+    detailTabId = tabId;
+  } else {
+    await runJs(tabId, 'location.href = ' + JSON.stringify(cleanUrl) + '; "OK"', { timeout: 30_000 }).catch(() => {});
+  }
   try {
     await waitFor(
       tabId,
@@ -817,7 +842,22 @@ export async function fetchOfferDetail({ url, log = () => {} } = {}) {
       { timeout: 45 },
     );
     await new Promise((r) => setTimeout(r, 2500));
-    await assertNoWall(tabId, '1688 详情页');
+    // 限速：连续抓详情页太快会触发滑块验证
+    const gap = Date.now() - lastDetailAt;
+    if (gap < DETAIL_MIN_INTERVAL_MS) await new Promise((r) => setTimeout(r, DETAIL_MIN_INTERVAL_MS - gap));
+    lastDetailAt = Date.now();
+    try {
+      await assertNoWall(tabId, '1688 详情页');
+    } catch (wallError) {
+      // 验证页：换一个干净标签页重试一次（不绕过验证，只是换会话）
+      livePush({ phase: 'sourcing', level: 'warn', message: '1688 出现滑块验证，换标签页重试一次' });
+      await resetDetailTab();
+      tabId = await openTab(cleanUrl);
+      detailTabId = tabId;
+      await waitFor(tabId, 'document.querySelector("h1") !== null || /punish|x5sec|tmd_____/.test(location.href)', { timeout: 45 });
+      await new Promise((r) => setTimeout(r, 3500));
+      await assertNoWall(tabId, '1688 详情页');
+    }
 
     const data = await runSnippet(tabId, 'detail-page.js');
     const bodyText = String(data.bodyText || '');

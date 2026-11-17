@@ -263,6 +263,10 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
     const segs = batch.segmentAnalysis.segments.filter((seg) => seg.count > 0);
     if (segs.length > 0) {
       push('### 1.5 分段利润：这个类目里，长尾还有没有利润？', '');
+      const noPrice = segs.every((seg) => seg.pricedCount === 0);
+      if (noPrice) {
+        push('> ⚠️ **本批没有任何一个品拿到通过校验的采购价**，所以净利率全部为空。下面这张表只给出**价格带、评论数、变体数**（这些是页面实测值）；「能不能做」要等 1688 采价通过校验后才能给。', '');
+      }
       push(...table(['分段', '品数', '已测算', '平均售价', '中位售价', '平均评论', '平均变体', '平均净利率', '中位净利率', '正利润占比', '≥25%占比', '能不能做'], segs.map((seg) => [
         seg.label,
         String(seg.count),

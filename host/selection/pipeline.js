@@ -123,8 +123,8 @@ export async function screenCandidates({
     error.code = 'INVALID_ARGS';
     throw error;
   }
-  if (list.length > 200) {
-    const error = new Error('一次最多体检 200 个候选，请分批');
+  if (list.length > 500) {
+    const error = new Error('一次最多体检 500 个候选，请分批');
     error.code = 'INVALID_ARGS';
     throw error;
   }
@@ -205,6 +205,7 @@ export async function screenCandidates({
   const scores = {
     inputHash,
     summary: batch.summary,
+    segmentAnalysis: batch.segmentAnalysis,
     results: batch.results.map(slimResult),
   };
   const provenance = {
