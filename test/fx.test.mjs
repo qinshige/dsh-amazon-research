@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_COST_FX, DEFAULT_SETTLE_FX, fxNote, getFx, resolveFx } from '../host/fx.js';
+import { DEFAULT_COST_FX, DEFAULT_SETTLE_FX, clearFxCache, fxNote, getFx, resolveFx } from '../host/fx.js';
 import { landedCost } from '../host/sourcing/cost-model.js';
 
 test('默认汇率：成本 6.7、结算 6.6', () => {
@@ -67,4 +67,37 @@ test('fxNote 一句话说明双汇率口径', () => {
   const note = fxNote(resolveFx());
   assert.match(note, /成本汇率 6\.7/);
   assert.match(note, /结算汇率 6\.6/);
+});
+
+test('默认走实时汇率（live 不传即为真）', async () => {
+  const fx = await getFx({ fetchImpl: async () => ({ ok: true, json: async () => ({ rates: { CNY: 6.72 } }) }) });
+  assert.equal(fx.costFx, 6.72);
+  assert.equal(fx.settleFx, 6.72);
+  assert.equal(fx.costFxSource, 'live');
+});
+
+test('手动指定两个汇率时不再走网络，来源标 manual', async () => {
+  let called = 0;
+  const fx = await getFx({
+    costFx: 6.75,
+    settleFx: 6.65,
+    fetchImpl: async () => { called += 1; return { ok: true, json: async () => ({ rates: { CNY: 6.9 } }) }; },
+  });
+  assert.equal(called, 0, '手动指定就不该再请求接口');
+  assert.equal(fx.costFx, 6.75);
+  assert.equal(fx.settleFx, 6.65);
+  assert.equal(fx.costFxSource, 'manual');
+});
+
+test('实时汇率进程内缓存：第二次调用不重复请求', async () => {
+  clearFxCache();
+  let called = 0;
+  const impl = async () => { called += 1; return { ok: true, json: async () => ({ rates: { CNY: 6.7 } }) }; };
+  const a = await getFx({ fetchImpl: null, live: true });
+  assert.ok(a.costFx > 0);
+  const before = called;
+  const b = await getFx({ live: true });
+  assert.equal(called, before, '缓存命中时不应再发请求');
+  assert.equal(b.costFx, a.costFx);
+  clearFxCache();
 });

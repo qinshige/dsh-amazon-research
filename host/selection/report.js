@@ -126,7 +126,7 @@ function planSection(plan) {
  * 渲染选品体检报告。
  * @param {{title:string, marketplace:string, generatedAt:string, batch:object, plan?:object, source?:string, fx?:number}} params
  */
-export function renderSelectionReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, plan = null, source = '手动/采集表', fx = 6.7, costFx = null, settleFx = 6.6, runId = '', inputHash = '', artifacts = [], profile = null, targetMonthlyUnits = null, channel = 'amazon-fba' } = {}) {
+export function renderSelectionReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, plan = null, source = '手动/采集表', fx = 6.7, costFx = null, settleFx = 6.6, fxInfo = null, runId = '', inputHash = '', artifacts = [], profile = null, targetMonthlyUnits = null, channel = 'amazon-fba' } = {}) {
   const results = batch?.results || [];
   const summary = batch?.summary || { tiers: {}, commonGaps: [], vetoed: 0, needsReview: [], avgMargin: null };
   const lines = [];
@@ -531,7 +531,7 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
  * 决策单、安全边际、分档、分段利润、渠道对照、否决依据链、净利率输入、待复核；
  * 去掉的是解释性文字，**不省略任何数字**。
  */
-export function renderDataReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, source = '手动/采集表', fx = 6.7, costFx = null, settleFx = 6.6, runId = '', inputHash = '', profile = null, channel = 'amazon-fba' } = {}) {
+export function renderDataReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, source = '手动/采集表', fx = 6.7, costFx = null, settleFx = 6.6, fxInfo = null, runId = '', inputHash = '', profile = null, channel = 'amazon-fba' } = {}) {
   const results = batch?.results || [];
   const summary = batch?.summary || { tiers: {}, decisions: {}, commonGaps: [], vetoed: 0, needsReview: [], avgMargin: null, classRisks: [] };
   const lines = [];
@@ -541,9 +541,11 @@ export function renderDataReport({ title = '选品', marketplace = 'US', generat
 
   push('# ' + title + ' ｜ ' + marketplace + ' ｜ ' + channel, '');
   const costRate = costFx === null || costFx === undefined ? fx : costFx;
+  const fxSrc = (id) => ({ live: '实时', manual: '手动', default: '默认' }[id] || '默认');
   push('| 生成时间 | 候选数 | 成本汇率 | 结算汇率 | 运行 ID | 输入指纹 |', '| --- | --- | --- | --- | --- | --- |');
-  push('| ' + cell(generatedAt || '—') + ' | ' + results.length + ' | ' + costRate + ' | ' + settleFx + ' | ' + cell(runId || '—') + ' | ' + cell(inputHash || '—') + ' |', '');
+  push('| ' + cell(generatedAt || '—') + ' | ' + results.length + ' | ' + costRate + '（' + fxSrc(fxInfo?.costFxSource) + '） | ' + settleFx + '（' + fxSrc(fxInfo?.settleFxSource) + '） | ' + cell(runId || '—') + ' | ' + cell(inputHash || '—') + ' |', '');
   push('> 成本汇率用于把人民币成本（1688 采购价、头程）折成美元；结算汇率用于把美元收入与利润折成人民币。人民币口径的利润额按结算汇率计算。', '');
+  if (fxInfo && fxInfo.fetchedAt) push('> 汇率取数时间：' + cell(fxInfo.fetchedAt), '');
   push('> 数据来源：' + cell(source), '');
 
   if (brief) {

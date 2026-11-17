@@ -82,18 +82,36 @@ export async function fetchLiveFx({ timeoutMs = 6000, fetchImpl = null } = {}) {
  * 取实时汇率并生成汇率配置。取不到就用默认值。
  * @param {{live?:boolean, costFx?:number, settleFx?:number, fetchImpl?:Function, timeoutMs?:number}} options
  */
+/**
+ * 实时汇率的进程内缓存。
+ *
+ * 为什么需要缓存：一次选品体检会算 228 个候选，每个候选都要用汇率；
+ * 不缓存的话就是 228 次网络请求，既慢又容易把汇率接口打挂。
+ * 缓存有效期默认 30 分钟 —— 汇率日内波动很小，30 分钟足够新鲜。
+ */
+const liveCache = { value: null, expiresAt: 0 };
+
+/** 清空实时汇率缓存（测试用）。 */
+export function clearFxCache() {
+  liveCache.value = null;
+  liveCache.expiresAt = 0;
+}
+
+/**
+ * 取实时汇率并生成汇率配置。
+ *
+ * 默认走**实时汇率**（用户口径「汇率可以按照实时的计算」）：
+ *   - 实时取到 → 成本汇率与结算汇率都用实时值，来源标 live；
+ *   - 手动传入 costFx / settleFx → 以手动值为准，来源标 manual；
+ *   - 取不到实时汇率 → 回落默认值（成本 6.7 / 结算 6.6），来源标 default，**不报错**。
+ *
+ * @param {{live?:boolean, costFx?:number, settleFx?:number, fetchImpl?:Function, timeoutMs?:number, cacheTtlMs?:number}} options
+ */
 export async function getFx(options = {}) {
   const manualCost = positive(options.costFx, null);
   const manualSettle = positive(options.settleFx, null);
-  if (options.live === false) {
-    return resolveFx({
-      costFx: manualCost ?? DEFAULT_COST_FX,
-      settleFx: manualSettle ?? DEFAULT_SETTLE_FX,
-      costFxSource: manualCost ? FX_SOURCE.manual.id : FX_SOURCE.default.id,
-      settleFxSource: manualSettle ? FX_SOURCE.manual.id : FX_SOURCE.default.id,
-    });
-  }
-  const live = await fetchLiveFx({ fetchImpl: options.fetchImpl, timeoutMs: options.timeoutMs });
+  const live = options.live !== false;
+
   if (!live) {
     return resolveFx({
       costFx: manualCost ?? DEFAULT_COST_FX,
@@ -102,12 +120,45 @@ export async function getFx(options = {}) {
       settleFxSource: manualSettle ? FX_SOURCE.manual.id : FX_SOURCE.default.id,
     });
   }
+
+  // 手动指定优先，且不再走网络（省一次请求，也避免手填值被实时值覆盖）
+  if (manualCost !== null && manualSettle !== null) {
+    return resolveFx({
+      costFx: manualCost,
+      settleFx: manualSettle,
+      costFxSource: FX_SOURCE.manual.id,
+      settleFxSource: FX_SOURCE.manual.id,
+    });
+  }
+
+  const ttl = Number.isFinite(Number(options.cacheTtlMs)) ? Number(options.cacheTtlMs) : 30 * 60 * 1000;
+  const now = Date.now();
+  let liveRate = null;
+  if (!options.fetchImpl && liveCache.value && liveCache.expiresAt > now) {
+    liveRate = liveCache.value;
+  } else {
+    liveRate = await fetchLiveFx({ fetchImpl: options.fetchImpl, timeoutMs: options.timeoutMs });
+    if (liveRate && !options.fetchImpl) {
+      liveCache.value = liveRate;
+      liveCache.expiresAt = now + ttl;
+    }
+  }
+
+  if (!liveRate) {
+    return resolveFx({
+      costFx: manualCost ?? DEFAULT_COST_FX,
+      settleFx: manualSettle ?? DEFAULT_SETTLE_FX,
+      costFxSource: manualCost ? FX_SOURCE.manual.id : FX_SOURCE.default.id,
+      settleFxSource: manualSettle ? FX_SOURCE.manual.id : FX_SOURCE.default.id,
+    });
+  }
+
   return resolveFx({
-    costFx: manualCost ?? live.rate,
-    settleFx: manualSettle ?? live.rate,
+    costFx: manualCost ?? liveRate.rate,
+    settleFx: manualSettle ?? liveRate.rate,
     costFxSource: manualCost ? FX_SOURCE.manual.id : FX_SOURCE.live.id,
     settleFxSource: manualSettle ? FX_SOURCE.manual.id : FX_SOURCE.live.id,
-    fetchedAt: live.fetchedAt,
+    fetchedAt: liveRate.fetchedAt,
   });
 }
 

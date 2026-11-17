@@ -626,7 +626,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           fx: { type: 'number', description: '成本汇率（1 USD = ? CNY），默认 6.7（人民币成本折美元）' },
           costFx: { type: 'number', description: '成本汇率（1 USD = ? CNY），默认 6.7；把 1688 采购价等人民币成本折成美元时用' },
           settleFx: { type: 'number', description: '结算汇率（1 USD = ? CNY），默认 6.6；把美元收入/利润折成人民币结算时用' },
-          liveFx: { type: 'boolean', description: '是否取实时汇率（默认 false；取不到自动回落默认值并在报告标注）' },
+          liveFx: { type: 'boolean', description: '是否取实时汇率（默认 true；取不到自动回落默认值 6.7/6.6 并在报告标注来源）' },
           title: { type: 'string', description: '报告标题，默认用 category 或「选品体检」' },
           source: { type: 'string', description: '候选来源标注，如「BS 榜 / 竞品店铺 / 手动采集」' },
           channel: {
@@ -717,8 +717,8 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
               marketplace,
               fx: typeof args?.fx === 'number' && Number.isFinite(args.fx) && args.fx > 0 ? args.fx : 6.7,
               costFx: typeof args?.costFx === 'number' && Number.isFinite(args.costFx) && args.costFx > 0 ? args.costFx : null,
-              settleFx: typeof args?.settleFx === 'number' && Number.isFinite(args.settleFx) && args.settleFx > 0 ? args.settleFx : 6.6,
-              liveFx: args?.liveFx === true,
+              settleFx: typeof args?.settleFx === 'number' && Number.isFinite(args.settleFx) && args.settleFx > 0 ? args.settleFx : null,
+              liveFx: args?.liveFx !== false,
               outputRoot,
               dataDir,
               source: collected.source,
@@ -753,7 +753,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
         const plan = (category || nodeIdPath || keyword) ? buildSelectionPlan(planInput) : null;
         const fx = typeof args?.fx === 'number' && Number.isFinite(args.fx) && args.fx > 0 ? args.fx : 6.7;
         const costFx = typeof args?.costFx === 'number' && Number.isFinite(args.costFx) && args.costFx > 0 ? args.costFx : null;
-        const settleFx = typeof args?.settleFx === 'number' && Number.isFinite(args.settleFx) && args.settleFx > 0 ? args.settleFx : 6.6;
+        const settleFx = typeof args?.settleFx === 'number' && Number.isFinite(args.settleFx) && args.settleFx > 0 ? args.settleFx : null;
         try {
           const result = await screenCandidates({
             rows,
@@ -762,7 +762,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
             fx,
             costFx,
             settleFx,
-            liveFx: args?.liveFx === true,
+            liveFx: args?.liveFx !== false,
             outputRoot,
             dataDir,
             source: asString(args?.source) || 'research_product_select',

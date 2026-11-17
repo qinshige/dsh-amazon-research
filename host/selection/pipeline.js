@@ -111,7 +111,7 @@ export async function screenCandidates({
   marketplace = 'US',
   fx = 6.7,
   costFx = null,
-  settleFx = 6.6,
+  settleFx = null,
   outputRoot,
   dataDir = null,
   source = '手动 / 采集表',
@@ -120,7 +120,7 @@ export async function screenCandidates({
   targetMonthlyUnits = null,
   channel = 'amazon-fba',
   reportStyle = 'data',
-  liveFx = false,
+  liveFx = true,
 } = {}) {
   const list = Array.isArray(rows) ? rows.filter((row) => row && typeof row === 'object') : [];
   if (list.length === 0) {
@@ -139,9 +139,9 @@ export async function screenCandidates({
     throw error;
   }
 
-  // 汇率：可选实时取数；取不到回落默认（成本 6.7 / 结算 6.6）。
+  // 汇率：默认取实时汇率；取不到回落默认（成本 6.7 / 结算 6.6）。
   const fxCfg = await getFx({
-    live: liveFx === true,
+    live: liveFx !== false,
     costFx: costFx === null || costFx === undefined ? undefined : costFx,
     settleFx: settleFx === null || settleFx === undefined ? undefined : settleFx,
   });
@@ -192,6 +192,7 @@ export async function screenCandidates({
     fx: effectiveCostFx,
     costFx: effectiveCostFx,
     settleFx: effectiveSettleFx,
+    fxInfo: fxCfg,
     profile: prof,
     targetMonthlyUnits,
     runId: run.runId,
@@ -239,6 +240,8 @@ export async function screenCandidates({
     fx: effectiveCostFx,
     costFx: effectiveCostFx,
     settleFx: effectiveSettleFx,
+    // 汇率来源与取数时间：报告里每个数字都能回到「用哪个汇率算的」
+    fxInfo: fxCfg,
     inputHash,
     inputCount: list.length,
     // 原始输入行原样保存：报告里任何数字都可以回到这里核对。
