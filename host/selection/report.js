@@ -131,6 +131,8 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
   const summary = batch?.summary || { tiers: {}, commonGaps: [], vetoed: 0, needsReview: [], avgMargin: null };
   const lines = [];
   const push = (...items) => lines.push(...items);
+  // 附录 A（保守档画像的补充说明）：正文不放教学内容，统一在这里渲染。
+  const coachAppendix = [];
 
   push('# ' + title + ' 选品体检报告（' + marketplace + '）', '');
   push('> 生成时间：' + (generatedAt || '—') + ' ｜ 候选数：' + results.length + ' ｜ 数据来源：' + source + ' ｜ 汇率：1 USD = ' + fx + ' CNY', '');
@@ -143,7 +145,7 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
   const brief = top && top.brief ? top.brief : null;
   if (brief) {
     push('### 1.1 决策单（先看这页）', '');
-    push('**结论：' + brief.decision + '** ｜ 画像：' + brief.profile.label, '');
+    push('**结论：' + brief.decision + '** ｜ 资金与能力：' + brief.profile.label, '');
     push('> ' + brief.reason, '');
     if (top.asin) push('> 当前排序第一：' + top.asin + ' ' + (top.name || '') + '；其余候选见第三节。', '');
     push('');
@@ -208,20 +210,21 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
     for (const [gap, count] of Object.entries(gaps).sort((a, b) => b[1] - a[1])) push('- ' + gap + '：' + count + ' 个');
     push('');
   }
+    // 教练层（保守档画像）不放在正文第一页：正文只给结论，
+    // 教学性内容全部下沉到附录 A，避免报告一眼看上去像新手教程。
     if (brief.profile.id === 'beginner' && top.coach) {
-      push('### 1.2 新手教练（老手可跳过）', '');
-      push('**为什么是这个结论**', '');
-      for (const item of top.coach.why) push('- ' + item);
-      push('');
-      push('**这个类目的坑**', '');
-      for (const item of top.coach.pitfalls) push('- ' + item);
-      push('');
-      push('**今天 / 本周 / 下周**', '');
-      for (const item of brief.actions) push('- ' + item);
-      push('');
-      push('**术语**', '');
-      push(...table(['术语', '一句话解释'], top.coach.terms));
-      push('');
+      coachAppendix.push('**为什么是这个结论**', '');
+      for (const item of top.coach.why) coachAppendix.push('- ' + item);
+      coachAppendix.push('');
+      coachAppendix.push('**这个类目的坑**', '');
+      for (const item of top.coach.pitfalls) coachAppendix.push('- ' + item);
+      coachAppendix.push('');
+      coachAppendix.push('**今天 / 本周 / 下周**', '');
+      for (const item of brief.actions) coachAppendix.push('- ' + item);
+      coachAppendix.push('');
+      coachAppendix.push('**术语**', '');
+      coachAppendix.push(...table(['术语', '一句话解释'], top.coach.terms));
+      coachAppendix.push('');
     }
   } else {
     push('本批没有候选数据：先按第二节抓候选、填采集表。', '');
@@ -508,6 +511,13 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
   push('- 缺失字段一律按「未知」处理，不参与命中率分母；未取到的数字不要当成 0。');
   push('- 专利、认证、类目审核必须人工复核，本工具不做法律定性。');
   push('');
+
+  if (coachAppendix.length > 0) {
+    push('---', '');
+    push('## 附录 A · 补充说明', '');
+    push('> 正文已经给了结论与依据，这一段是给第一次做这类目的人看的补充，老手可跳过。', '');
+    push(...coachAppendix);
+  }
 
   return lines.join('\n');
 }

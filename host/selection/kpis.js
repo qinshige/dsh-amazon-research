@@ -350,7 +350,7 @@ export function evaluateCandidate(row, { fx = 7.1, smallVolumeUnits = 200, chann
 
   // 3) 价格区间 ----------------------------------------------------------
   if (c.priceUSD === null) add(check('priceBand', 3, '售价区间', UNKNOWN, '—'));
-  else if (c.priceUSD >= 15 && c.priceUSD <= 45) add(check('priceBand', 3, '售价区间', OK, '$' + c.priceUSD.toFixed(2), '新手稳健带'));
+  else if (c.priceUSD >= 15 && c.priceUSD <= 45) add(check('priceBand', 3, '售价区间', OK, '$' + c.priceUSD.toFixed(2), '稳健价带'));
   else if (c.priceUSD < 10) add(check('priceBand', 3, '售价区间', BAD, '$' + c.priceUSD.toFixed(2), '利润被物流吃掉'));
   else add(check('priceBand', 3, '售价区间', WARN, '$' + c.priceUSD.toFixed(2), c.priceUSD > 80 ? '需品牌与售后' : '偏离 15–45 美元'));
 

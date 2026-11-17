@@ -226,7 +226,7 @@ export const DIMENSION_CHECKLIST = Object.freeze([
   { no: 3, name: '价格区间', kpi: '避开无利润基本消费带；主攻 $15–45 或高单价带', source: '价格带分布 + 竞品售价' },
   { no: 4, name: '评分数量与星级', kpi: '前 10 评价 < 1000；低评分可作差异化入口', source: '商品详情页 / 评论' },
   { no: 5, name: '新品占有率', kpi: '新品占比 10%–25%；半年–一年新品有销量', source: '上架时间分布' },
-  { no: 6, name: '季节性 / 节日性', kpi: '新手优先全年平稳款；节日品单独设备货节奏', source: 'Google Trends / 类目历史' },
+  { no: 6, name: '季节性 / 节日性', kpi: '优先全年平稳款；节日品单独设备货节奏', source: 'Google Trends / 类目历史' },
   { no: 7, name: '质量、退货与变体', kpi: '退货率 < 5%；差评点可解决；变体 ≤ 3', source: '评论 / 退货率 / 变体' },
   { no: 8, name: '运输便利性', kpi: '非易碎非抛货；物流占售价 10%–15%，> 20% 放弃', source: '件重尺寸 / FBA 费' },
   { no: 9, name: '供应链优势', kpi: '至少 2 家供应商；能配合微创新与账期', source: '1688 / 工厂' },

@@ -188,7 +188,7 @@ test('体检落盘：report.md 含四途径、十维、否决、差异化与追�
     assert.match(report, /## 一、决策摘要与结论/);
     assert.match(report, /### 1\.1 决策单/);
     assert.match(report, /安全边际/);
-    assert.match(report, /### 1\.2 新手教练/);
+    assert.match(report, /## 附录 A · 补充说明/);
     assert.match(report, /## 二、四途径执行路线/);
     assert.match(report, /## 三、十维体检明细/);
     assert.match(report, /## 四、一票否决清单/);
@@ -461,15 +461,15 @@ test('决策单：安全边际与首批资金可复算', () => {
   assert.ok(brief.changeMyMind.length > 0);
 });
 
-test('报告：新手有教练层，进阶没有', async () => {
+test('报告：保守档有附录教练层，进阶没有', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'dsr-profile-'));
   try {
     const beginner = await screenCandidates({ rows: [baseRow], outputRoot: dir, title: '新手', profile: 'beginner' });
     const operator = await screenCandidates({ rows: [baseRow], outputRoot: dir, title: '进阶', profile: 'operator' });
     const beginnerMd = await readFile(join(beginner.dir, 'report.md'), 'utf8');
     const operatorMd = await readFile(join(operator.dir, 'report.md'), 'utf8');
-    assert.match(beginnerMd, /### 1\.2 新手教练/);
-    assert.doesNotMatch(operatorMd, /### 1\.2 新手教练/);
+    assert.match(beginnerMd, /## 附录 A · 补充说明/);
+    assert.doesNotMatch(operatorMd, /## 附录 A · 补充说明/);
     assert.match(operatorMd, /### 1\.1 决策单/);
     assert.equal(beginner.profile, 'beginner');
     assert.equal(operator.profile, 'operator');

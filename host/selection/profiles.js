@@ -7,7 +7,7 @@
 export const PROFILES = Object.freeze({
   beginner: Object.freeze({
     id: 'beginner',
-    label: '新手（资金 <10 万，无稳定供应链）',
+    label: '资金 <10 万，无稳定供应链',
     priceMin: 15,
     priceMax: 35,
     /** 渠道专属价格带（覆盖 priceMin/priceMax） */
@@ -112,7 +112,7 @@ export function evaluateProfileFit(candidate, profileInput = 'beginner', channel
 
   const cert = checkOf(candidate, 'certification');
   if (profile.forbidCertification && cert && cert.status === '警戒') {
-    fails.push({ label: '需要认证', detail: String(cert.value) + '（新手先避开）' });
+    fails.push({ label: '需要认证', detail: String(cert.value) + '（保守档先避开）' });
   }
 
   const season = candidate.flags ? candidate.flags.seasonality : '';
@@ -139,7 +139,7 @@ export function evaluateProfileFit(candidate, profileInput = 'beginner', channel
   const advice = [];
   for (const item of softFails) {
     if (item.label === '售价低于画像下限') advice.push('提价到 $' + band.min + ' 以上，或改做更高客单的组合装/材质款');
-    else if (item.label === '售价高于画像上限') advice.push('这个价格带需要品牌与售后能力；新手可换到 $' + band.min + '–$' + band.max + ' 带');
+    else if (item.label === '售价高于画像上限') advice.push('这个价格带需要品牌与售后能力；保守档可换到 $' + band.min + '–$' + band.max + ' 带');
     else if (item.label === '变体数超出画像上限') advice.push('收敛变体到 ' + profile.maxVariants + ' 个以内（先做主推色/尺寸）');
     else if (item.label === '强季节性') advice.push('避开强季节品，或把备货压到 1 个周期内');
     else if (item.label === '净利率低于画像红线') advice.push('压采购价 / 提价 / 换材料，或换到更高客单的款');
@@ -173,7 +173,7 @@ export function decide(candidate, fit, profileInput = 'beginner') {
   if (candidate.tier === '一档' && fit.status === '适合') {
     return {
       decision: profile.id === 'beginner' ? '小批量测' : '做',
-      reason: profile.id === 'beginner' ? '各项达标，但新手仍先小批量验证' : '各项达标，可按计划开品',
+      reason: profile.id === 'beginner' ? '各项达标，先小批量验证再放量' : '各项达标，可按计划开品',
     };
   }
   if (candidate.tier === '二档' || fit.status === '需条件') {

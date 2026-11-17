@@ -28,7 +28,7 @@ export const CHANNEL_MODELS = Object.freeze({
     /** 跨境直发：每件基础 + 每 kg */
     fulfillmentBaseUSD: 0,
     fulfillmentPerKgUSD: 0,
-    /** 价格带参考（新手稳态区间） */
+    /** 价格带参考（稳态区间） */
     priceBand: { min: 15, max: 45 },
     notes: [
       '平台佣金 15%（工具/家居 15%，工业科学 12%，服饰 17%，美妆电子 8%）',
