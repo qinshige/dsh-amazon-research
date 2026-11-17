@@ -27,6 +27,13 @@ function num(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/** 百分比归一：50 / 0.5 → 0.5；>1.5 视为百分数。 */
+function pct(value) {
+  const n = num(value);
+  if (n === null) return null;
+  return n > 1.5 ? n / 100 : n;
+}
+
 function avg(list, pick) {
   const values = list.map(pick).filter((v) => typeof v === 'number' && Number.isFinite(v));
   return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
@@ -47,10 +54,14 @@ function median(list, pick) {
 export function analyzeSegments({ rows = [], channel = 'amazon-fba', fx = 7.1, profile = null } = {}) {
   const scored = rows.map((row, index) => {
     const price = num(row['售价USD'] ?? row.priceUSD);
-    const units = num(row['月销'] ?? row.monthlySales);
-    const bsr = num(row['BSR'] ?? row.bsr);
+    // 销量：优先我们自己的实测月销，其次用卖家精灵扩展抓到的销量
+    const units = num(row['月销'] ?? row.monthlySales) ?? num(row['卖家精灵销量'] ?? row.spriteUnits);
+    // BSR：优先实测 BSR，其次卖家精灵精确 BSR（比类目大类排名更准）
+    const bsr = num(row['BSR'] ?? row.bsr) ?? num(row['卖家精灵BSR'] ?? row.spriteBsr);
     const reviews = num(row['评论数'] ?? row.reviews);
-    return { row, index, price, units, bsr, reviews, asin: row.ASIN || row.asin || '' };
+    // 参考毛利率：卖家精灵口径（平台自算毛利率，非本插件全成本净利率）
+    const refGross = pct(row['卖家精灵毛利率'] ?? row['毛利率'] ?? row.spriteGrossMargin);
+    return { row, index, price, units, bsr, reviews, refGross, asin: row.ASIN || row.asin || '' };
   });
   scored.sort((a, b) => {
     if (a.bsr !== null && b.bsr !== null) return a.bsr - b.bsr;
@@ -107,13 +118,23 @@ export function analyzeSegments({ rows = [], channel = 'amazon-fba', fx = 7.1, p
     const avgPrice = avg(slice, (item) => item.price);
     const medPrice = median(slice, (item) => item.price);
     const avgVariants = avg(slice, (item) => num(item.row['变体数'] ?? item.row.variants));
+    const avgUnits = avg(slice, (item) => item.units);
+    // 卖家精灵口径毛利率（平台自算）：采购价没采到的品也能看这一段的「有没有肉」
+    const refGrossList = slice.map((item) => item.refGross).filter((v) => v !== null && v !== undefined);
+    const refGrossAvg = refGrossList.length ? refGrossList.reduce((a, b) => a + b, 0) / refGrossList.length : null;
+    const refGrossMedian = median(refGrossList, (v) => v);
     // 能不能做：用画像净利率红线（没有画像时按 25%）
     const redline = profile && typeof profile.marginRedline === 'number' ? profile.marginRedline : 0.25;
     let verdict = '数据不足';
     let why = '';
     if (margins.length === 0) {
-      verdict = '缺采购价';
-      why = '该段没有可测算利润的候选（缺 1688 实测采购价）';
+      if (refGrossAvg !== null) {
+        verdict = refGrossAvg >= redline ? '可做（参考毛利率）' : (refGrossAvg > 0 ? '只能跑体量（参考毛利率）' : '暂不做（参考毛利率）');
+        why = '该段无 1688 实测采购价，只能用卖家精灵口径毛利率 ' + (refGrossAvg * 100).toFixed(1) + '% 判断（覆盖 ' + refGrossList.length + '/' + slice.length + ' 个；这不是全成本净利率，扣掉广告/退货/头程后会低）';
+      } else {
+        verdict = '缺采购价';
+        why = '该段没有可测算利润的候选（缺 1688 实测采购价）';
+      }
     } else if (avgMargin >= redline + 0.05) {
       verdict = '可做';
       why = '平均净利率 ' + (avgMargin * 100).toFixed(1) + '% 高于红线 ' + (redline * 100).toFixed(0) + '%，且中位净利率 ' + (medianMargin * 100).toFixed(1) + '%，' + good + '/' + margins.length + ' 个达 25%';
@@ -135,6 +156,10 @@ export function analyzeSegments({ rows = [], channel = 'amazon-fba', fx = 7.1, p
       medianPrice: medPrice,
       avgReviews,
       avgVariants,
+      avgUnits,
+      refGrossAvg,
+      refGrossMedian,
+      refGrossCount: refGrossList.length,
       avgMargin,
       medianMargin,
       positiveRatio: margins.length ? positive / margins.length : null,

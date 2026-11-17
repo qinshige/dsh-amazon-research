@@ -46,15 +46,17 @@ const ALIASES = {
   url: ['链接', 'url', '商品链接', 'detailUrl'],
   sourceLabel: ['来源', '数据来源', 'source', '采集来源'],
   collectedAt: ['采集时间', '抓取时间', 'collectedAt', 'fetchedAt'],
-  brand: ['品牌', 'brand'],
+  brand: ['品牌', 'brand', '卖家精灵品牌'],
   categoryPath: ['类目路径', 'categoryPath', '类目', 'category'],
   priceUSD: ['售价USD', 'priceUSD', '售价', 'price', '价格USD'],
   rating: ['评分', 'rating', '星级'],
   reviews: ['评论数', 'reviews', '评价数'],
-  monthlySales: ['月销', 'monthlySales', '月销量'],
-  bsrRank: ['BSR排名', 'bsrRank', 'BSR'],
+  monthlySales: ['月销', 'monthlySales', '月销量', '卖家精灵销量'],
+  bsrRank: ['BSR排名', 'bsrRank', 'BSR', '卖家精灵BSR'],
   monthlyPurchases: ['月购买量', 'monthlyPurchases'],
-  fbaFeeUSD: ['FBA配送费USD', 'fbaFeeUSD', '配送费USD', 'FBA费USD'],
+  fbaFeeUSD: ['FBA配送费USD', 'fbaFeeUSD', '配送费USD', 'FBA费USD', '卖家精灵FBA费'],
+  // 卖家精灵口径毛利率（平台自算）：采购价没采到时，用它看这一段「有没有肉」
+  refGrossMargin: ['卖家精灵毛利率', '毛利率', 'spriteGrossMargin'],
   weightG: ['重量g', 'weightG', '件重g'],
   lengthCm: ['长cm', 'lengthCm'],
   widthCm: ['宽cm', 'widthCm'],
@@ -77,7 +79,7 @@ const ALIASES = {
   trend: ['趋势', 'trend'],
   seasonality: ['季节性', 'seasonality'],
   fragile: ['易碎', 'fragile'],
-  variants: ['变体数', 'variants'],
+  variants: ['变体数', 'variants', '卖家精灵变体数'],
   patentRisk: ['专利风险', 'patentRisk'],
   certification: ['认证', 'certification', '认证要求'],
   supplierCount: ['供应商数', 'supplierCount'],
@@ -89,7 +91,13 @@ const ALIASES = {
 
 function rawOf(row, key) {
   for (const alias of ALIASES[key] || []) {
-    if (row && Object.hasOwn(row, alias)) return row[alias];
+    if (!row || !Object.hasOwn(row, alias)) continue;
+    const value = row[alias];
+    // 空的占位值（'' / null / undefined）不算命中，继续找下一个别名，
+    // 否则「BSR=空但卖家精灵BSR 有值」这类兜底会失效。
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'string' && value.trim() === '') continue;
+    return value;
   }
   return undefined;
 }
@@ -157,6 +165,7 @@ export function normalizeCandidate(row = {}) {
     rating: num(rawOf(row, 'rating')),
     reviews: num(rawOf(row, 'reviews')),
     monthlySales: num(rawOf(row, 'monthlySales')),
+    refGrossMargin: (() => { const v = ratio(rawOf(row, 'refGrossMargin')); return v; })(),
     bsrRank: num(rawOf(row, 'bsrRank')),
     monthlyPurchases: num(rawOf(row, 'monthlyPurchases')),
     fbaFeeUSD: num(rawOf(row, 'fbaFeeUSD')),

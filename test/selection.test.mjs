@@ -509,3 +509,47 @@ test('类目报告第九章：四途径入口、九策略、十维与差异化',
   assert.match(report, /Best Sellers/);
   assert.match(report, /research_product_select/);
 });
+
+test('别名兜底：空 BSR 时取卖家精灵 BSR，空 月销 时取卖家精灵销量', () => {
+  const c = normalizeCandidate({
+    ASIN: 'B0TEST001',
+    商品名称: '测试品',
+    '售价USD': 19.99,
+    'BSR': '',
+    '卖家精灵BSR': 28298,
+    '月销': '',
+    '卖家精灵销量': 406,
+    '卖家精灵FBA费': 4.64,
+    '卖家精灵毛利率': 52,
+    '卖家精灵变体数': 3,
+  });
+  assert.equal(c.bsrRank, 28298);
+  assert.equal(c.monthlySales, 406);
+  assert.equal(c.fbaFeeUSD, 4.64);
+  assert.equal(c.variants, 3);
+  assert.equal(c.refGrossMargin, 0.52);
+});
+
+test('分段分析：没有实测采购价时用卖家精灵毛利率兜底，并给出覆盖度', () => {
+  const rows = [];
+  for (let i = 0; i < 12; i += 1) {
+    rows.push({
+      ASIN: 'B0SEG' + String(i).padStart(3, '0'),
+      商品名称: '手套夹 ' + i,
+      '售价USD': 14 + i,
+      'BSR': 1000 + i * 100,
+      '评论数': 50 + i,
+      '月销': 300 - i * 10,
+      '卖家精灵毛利率': 55,
+    });
+  }
+  const out = analyzeSegments({ rows, channel: 'amazon-fba', fx: 7.1, profile: null });
+  const head = out.segments[0];
+  assert.equal(head.count, 10);
+  assert.equal(head.pricedCount, 0);
+  assert.ok(head.refGrossAvg !== null);
+  assert.equal(Math.round(head.refGrossAvg * 100), 55);
+  assert.equal(head.refGrossCount, 10);
+  assert.match(head.verdict, /参考毛利率/);
+  assert.ok(head.avgUnits > 0);
+});

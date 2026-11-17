@@ -267,7 +267,7 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
       if (noPrice) {
         push('> ⚠️ **本批没有任何一个品拿到通过校验的采购价**，所以净利率全部为空。下面这张表只给出**价格带、评论数、变体数**（这些是页面实测值）；「能不能做」要等 1688 采价通过校验后才能给。', '');
       }
-      push(...table(['分段', '品数', '已测算', '平均售价', '中位售价', '平均评论', '平均变体', '平均净利率', '中位净利率', '正利润占比', '≥25%占比', '能不能做'], segs.map((seg) => [
+      push(...table(['分段', '品数', '已测算', '平均售价', '中位售价', '平均评论', '平均变体', '月销均值', '平均净利率', '中位净利率', '正利润占比', '≥25%占比', '参考毛利率(卖家精灵)', '能不能做'], segs.map((seg) => [
         seg.label,
         String(seg.count),
         String(seg.pricedCount),
@@ -275,13 +275,16 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
         money(seg.medianPrice),
         seg.avgReviews === null ? '—' : String(Math.round(seg.avgReviews)),
         seg.avgVariants === null ? '—' : seg.avgVariants.toFixed(1),
+        seg.avgUnits === null ? '—' : String(Math.round(seg.avgUnits)),
         seg.avgMargin === null ? '—' : pct(seg.avgMargin, 1),
         seg.medianMargin === null ? '—' : pct(seg.medianMargin, 1),
         seg.positiveRatio === null ? '—' : pct(seg.positiveRatio, 0),
         seg.goodRatio === null ? '—' : pct(seg.goodRatio, 0),
+        seg.refGrossAvg === null || seg.refGrossAvg === undefined ? '—' : pct(seg.refGrossAvg, 1) + '（' + (seg.refGrossCount || 0) + '/' + seg.count + '）',
         seg.verdict + '（' + seg.why + '）',
       ])));
       push('');
+      push('> **两列口径不一样，别混用**：「平均净利率」是本插件的全成本口径（采购 + 头程 + FBA + 佣金 + 广告 + 退货 + 其它），只对拿到 1688 实测采购价的候选有效；「参考毛利率」是卖家精灵平台自己算的毛利率，覆盖面大得多，但没有扣广告/退货/头程，所以**一定高于本插件的净利率**，只能用来判断「这一段有没有肉」，不能直接当利润。', '');
       push('> ' + batch.segmentAnalysis.note, '');
       push('> 读法：头部（1–10）集中度高说明**头部很贵**（评论壁垒高），真正的机会常在腰部/长尾 —— 那里评论少、售价接近头部、利润反而更高。**不要因为 Top3 集中度高就否掉整个类目**。', '');
       push('');
