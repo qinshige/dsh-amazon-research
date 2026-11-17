@@ -766,6 +766,127 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
       },
     },
     {
+      name: 'research_page',
+      description: [
+        '直接操作你已经登录的 Chrome 页面（点击 / 输入 / 按键 / 滚动 / 拖滚动条 / 读可见文本或表格），用来把「只渲染首屏」的页面数据翻出来。',
+        '调用时机：卖家精灵扩展面板、卖家精灵网页版、Amazon 搜索页、1688 详情页、Trendyol 等需要点击「加载更多」、翻页、选筛选、滚动虚拟列表才能看到全部数据时。',
+        'action：tabs 列出标签页 ｜ state 页面概况（URL/标题/滚动高度/元素数）｜ click 点击（selector 或 text 或 xpath）｜ type 输入文本（可回车）｜ press 按键 ｜ scroll 滚动到指定位置或步进 ｜ drag 拖滚动条（失败自动分步滚动并在 method 里说明）｜ read 读可见文本或表格行 ｜ wait 等元素出现 ｜ scrollAll 反复滚到底并读全。',
+        'target 三选一：tabId（精确）｜url（按 URL 片段匹配已打开的标签页）｜都不给则用第一个标签页。',
+        '纪律：只操作你已登录的页面，不绕过验证码 / 登录 / 付费墙；页面出现验证或人机校验时返回 warning，请人工处理后继续。',
+      ].join('\n'),
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['tabs', 'state', 'click', 'type', 'press', 'scroll', 'drag', 'read', 'wait', 'scrollAll'], description: '要执行的动作' },
+          tabId: { type: 'string', description: '标签页 id（tabs 动作返回）；不传则按 url 匹配或取第一个标签页' },
+          url: { type: 'string', description: '按 URL 片段匹配已打开的标签页，如 sellersprite.com / amazon.com/s?k=' },
+          selector: { type: 'string', description: 'CSS 选择器' },
+          text: { type: 'string', description: '按可见文字找元素（等于或包含）' },
+          xpath: { type: 'string', description: 'XPath（前两者不适用时用）' },
+          index: { type: 'integer', minimum: 0, maximum: 500, description: '同名元素的第几个，默认 0' },
+          value: { type: 'string', description: 'type 动作要写入的文本' },
+          enter: { type: 'boolean', description: 'type 动作写完是否回车提交' },
+          key: { type: 'string', description: 'press 动作的按键名，如 Enter / Escape / ArrowDown' },
+          top: { type: 'number', description: 'scroll 动作：滚到指定 scrollTop' },
+          deltaY: { type: 'number', description: 'scroll / drag 动作：相对滚动的像素' },
+          toBottom: { type: 'boolean', description: 'drag 动作：是否拖到底（默认 true）' },
+          rows: { type: 'boolean', description: 'read 动作：读表格行而不是整页文本' },
+          limit: { type: 'integer', minimum: 1, maximum: 5000, description: 'read 动作返回的最大条数，默认 500' },
+          timeout: { type: 'integer', minimum: 1, maximum: 300, description: 'wait 动作的等待秒数，默认 30' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      output: { schema: OUTPUT_SCHEMA, render: renderJson },
+      isConcurrencySafe: () => false,
+      async execute(rawArgs) {
+        const action = asString(rawArgs?.action);
+        if (!action) return err('INVALID_ARGS', 'action 必填', '可选：tabs / state / click / type / press / scroll / drag / read / wait / scrollAll');
+        let page;
+        let chrome;
+        try {
+          page = await import('./web/page-actions.js');
+          chrome = await import('./web/chrome.js');
+        } catch (error) {
+          return err('PAGE_UNAVAILABLE', '页面操作模块不可用：' + String(error?.message ?? error), '需要 macOS + Google Chrome；其它平台无法驱动页面。');
+        }
+        let tabs = [];
+        try {
+          tabs = await chrome.listTabs();
+        } catch (error) {
+          return err('CHROME_UNREACHABLE', String(error?.message ?? error), '确认 Chrome 正在运行，且系统已允许终端/DSH 控制 Google Chrome。');
+        }
+        let tabId = asString(rawArgs?.tabId);
+        if (!tabId) {
+          const urlPart = asString(rawArgs?.url);
+          const hit = urlPart ? tabs.find((t) => String(t.url || '').includes(urlPart)) : null;
+          tabId = hit ? hit.id : (tabs[0] ? tabs[0].id : '');
+        }
+        if (action === 'tabs') {
+          return { ok: true, count: tabs.length, tabs: tabs.map((t) => ({ id: t.id, url: t.url })) };
+        }
+        if (!tabId) return err('NO_TAB', '没有可操作的标签页', '先在 Chrome 里打开目标页面（或在参数里给 url 片段）。');
+        const current = tabs.find((t) => t.id === tabId);
+        if (current && !/^https?:/i.test(String(current.url || ''))) {
+          return err('BAD_TAB', '目标标签页不是 http(s) 页面：' + String(current.url || ''), '先导航到目标页面再操作。');
+        }
+        const target = {
+          selector: asString(rawArgs?.selector) || null,
+          text: asString(rawArgs?.text) || null,
+          xpath: asString(rawArgs?.xpath) || null,
+          index: Number.isFinite(Number(rawArgs?.index)) ? Number(rawArgs.index) : 0,
+          contains: rawArgs?.contains !== false,
+        };
+        try {
+          if (action === 'state') return { ok: true, tabId, state: await page.pageState(tabId) };
+          if (action === 'click') return { ok: true, tabId, ...(await page.click(tabId, target)) };
+          if (action === 'type') return { ok: true, tabId, ...(await page.type(tabId, target, String(rawArgs?.value ?? ''), { enter: rawArgs?.enter === true })) };
+          if (action === 'press') return { ok: true, tabId, ...(await page.press(tabId, asString(rawArgs?.key) || 'Enter', target.selector || null)) };
+          if (action === 'scroll') {
+            return { ok: true, tabId, ...(await page.scroll(tabId, {
+              selector: target.selector,
+              top: Number.isFinite(Number(rawArgs?.top)) ? Number(rawArgs.top) : null,
+              deltaY: Number.isFinite(Number(rawArgs?.deltaY)) ? Number(rawArgs.deltaY) : null,
+            })) };
+          }
+          if (action === 'drag') {
+            return { ok: true, tabId, ...(await page.dragScroll(tabId, {
+              selector: target.selector,
+              toBottom: rawArgs?.toBottom !== false,
+              deltaY: Number.isFinite(Number(rawArgs?.deltaY)) ? Number(rawArgs.deltaY) : 600,
+            })) };
+          }
+          if (action === 'read') {
+            const result = await page.read(tabId, {
+              selector: target.selector,
+              rows: rawArgs?.rows === true,
+              limit: Number.isFinite(Number(rawArgs?.limit)) ? Number(rawArgs.limit) : 500,
+            });
+            const joined = Array.isArray(result?.data) ? JSON.stringify(result.data) : '';
+            const warning = /验证码|人机验证|滑动验证|captcha|verify you are human|access denied/i.test(joined)
+              ? '页面出现验证码/人机校验：请人工处理后重试，插件不绕过。'
+              : null;
+            return warning ? { ok: true, tabId, warning, ...result } : { ok: true, tabId, ...result };
+          }
+          if (action === 'wait') {
+            const found = await page.waitForSelector(tabId, target.selector || '*', { timeout: Number(rawArgs?.timeout) || 30 });
+            return { ok: true, tabId, found };
+          }
+          if (action === 'scrollAll') {
+            const result = await page.scrollUntilStable(tabId, {
+              selector: target.selector,
+              step: Number.isFinite(Number(rawArgs?.deltaY)) ? Number(rawArgs.deltaY) : 600,
+            });
+            return { ok: true, tabId, ...result };
+          }
+          return err('INVALID_ARGS', '未知 action: ' + action, '可选：tabs / state / click / type / press / scroll / drag / read / wait / scrollAll');
+        } catch (error) {
+          const code = typeof error?.code === 'string' ? error.code : 'PAGE_ACTION_FAILED';
+          return err(code, String(error?.message ?? error));
+        }
+      },
+    },
+    {
       name: 'mcp_call',
       description: [
         '直接调用已配置数据源的 MCP 工具（逃生口）：用于插件尚未封装的能力（关键词、评论、流量、ABA、单品详情等）。',

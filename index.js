@@ -2,8 +2,9 @@
  * dsh-amazon-research —— 亚马逊选品研究（DeepSeek Harness 插件）。
  *
  * 能力：
- *   1. 6 个模型工具：research_provider_status / research_category_select /
- *      research_product_select（四途径 + 九策略 + 十维 + 差异化）/ research_unit_cost / research_runs / mcp_call；
+ *   1. 7 个模型工具：research_provider_status / research_category_select /
+ *      research_product_select（四途径 + 九策略 + 十维 + 差异化）/ research_unit_cost / research_runs /
+ *      research_page（点击/滚动/拖滚动条等页面操作）/ mcp_call；
  *   2. 2 个内嵌技能：amazon-category-selection（类目五维）与 amazon-product-selection（选品全流程）；
  *   3. 侧栏「选品研究」面板 + 设置页的 HTTP API（host/routes.js）；
  *   4. 数据落盘：$DSH_HOME/amazon-research/（密钥、配置、缓存、运行目录）。
@@ -22,7 +23,7 @@ import { createTools } from './host/tools.js';
 import { registerRoutes } from './host/routes.js';
 
 export const name = 'dsh-amazon-research';
-export const version = '0.4.4';
+export const version = '0.4.5';
 
 /** 工具是硬依赖；缺了它插件没有意义。 */
 export const inject = ['tools'];
@@ -43,7 +44,8 @@ const GUIDANCE_TEXT = [
   '3. 工具只返回摘要与产物路径；需要细节用 ' + bt + 'research_runs' + bt + '（action=get）读报告，不要把整表塞回对话。',
   '4. 评分口径固定为上游 92 分制：normalized = total/92*100，评级 ≥80 优秀 / ≥60 良好 / ≥40 一般 / <40 较差。报告里要同时写清 score/max 与归一化值。',
   '5. 数据纪律：所有数字必须来自工具返回；缺失字段写「未取到」并说明；每次结论附数据来源与抓取时间；禁止用常识补齐 ASIN、销量、价格、排名。',
-  '6. ' + bt + 'mcp_call' + bt + ' 只是逃生口（关键词/评论/单品详情等尚未封装的能力），优先用高层工具。',
+  '6. ' + bt + 'research_page' + bt + ' 可直接操作你已登录的 Chrome 页面：click 点击 / type 输入 / press 按键 / scroll 滚动 / drag 拖滚动条 / read 读可见文本或表格 / scrollAll 滚到底读全。只用于把页面上「必须点击或滚动才出现」的数据翻出来，不绕过验证码与登录；页面出现人机校验时它会返回 warning，请人工处理。',
+  '7. ' + bt + 'mcp_call' + bt + ' 只是逃生口（关键词/评论/单品详情等尚未封装的能力），优先用高层工具。',
   '7. 选品全流程（四途径 → 九策略 → 十维 → 差异化）：先 ' + bt + 'research_product_select' + bt + '（action=plan）拿到站内 7 个榜单入口、站外/软件/线下渠道、九策略适用性与十维清单；把候选 ASIN 按采集表填好后用 action=screen 做十维体检、一票否决、分档、净利率与差异化。screen 传 profile（beginner 默认 / operator / factory）与 targetMonthlyUnits，报告开头直接给决策单：做/小批量测/先补数/不做、致命项、安全边际（采购上限/售价下限/广告上限/退货上限）、首批资金与回本、可攻击面；beginner 保守档画像另带附录教练层。一档/二档再跑 ' + bt + 'research_unit_cost' + bt + ' 采 1688 真实采购价重算。两个 action 都不消耗数据服务额度。',
   '8. 内置技能：amazon-product-selection 覆盖四途径与九策略（单品级），amazon-category-selection 只做类目五维（类目级）；不要用类目数据冒充单品结论。',
   '',

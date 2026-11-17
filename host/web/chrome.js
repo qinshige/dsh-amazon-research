@@ -51,6 +51,20 @@ const APPLESCRIPT = `on run argv
       set URL of t to theURL
       return "ok"
     end tell
+  else if verb is "focus" then
+    set tid to item 2 of argv
+    tell application "Google Chrome"
+      repeat with w in windows
+        repeat with i from 1 to (count of tabs of w)
+          if ((id of (item i of tabs of w)) as string) is tid then
+            set active tab index of w to i
+            set index of w to 1
+            return "focused"
+          end if
+        end repeat
+      end repeat
+    end tell
+    return "notfound"
   else if verb is "js" then
     set tid to item 2 of argv
     set jsText to item 3 of argv
