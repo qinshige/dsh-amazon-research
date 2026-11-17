@@ -45,23 +45,29 @@ function median(list, pick) {
  *   rows 必须是采集表行（已含 售价USD / 评论数 / 采购价CNY / 重量g 等）
  */
 export function analyzeSegments({ rows = [], channel = 'amazon-fba', fx = 7.1, profile = null } = {}) {
-  const priced = rows
-    .map((row, index) => {
-      const price = num(row['售价USD'] ?? row.priceUSD);
-      const units = num(row['月销'] ?? row.monthlySales);
-      return { row, index, price, units, asin: row.ASIN || row.asin || '' };
-    })
-    .sort((a, b) => {
-      const ua = a.units === null ? -1 : a.units;
-      const ub = b.units === null ? -1 : b.units;
-      if (ua !== ub) return ub - ua;
-      return a.index - b.index;
-    });
+  const scored = rows.map((row, index) => {
+    const price = num(row['售价USD'] ?? row.priceUSD);
+    const units = num(row['月销'] ?? row.monthlySales);
+    const bsr = num(row['BSR'] ?? row.bsr);
+    const reviews = num(row['评论数'] ?? row.reviews);
+    return { row, index, price, units, bsr, reviews, asin: row.ASIN || row.asin || '' };
+  });
+  scored.sort((a, b) => {
+    if (a.bsr !== null && b.bsr !== null) return a.bsr - b.bsr;
+    if (a.bsr !== null) return -1;
+    if (b.bsr !== null) return 1;
+    if (a.reviews !== null && b.reviews !== null) return b.reviews - a.reviews;
+    if (a.units !== null && b.units !== null) return b.units - a.units;
+    return a.index - b.index;
+  });
+  const priced = scored.map((item, seq) => ({ ...item, seq }));
+  const withBsr = priced.filter((item) => item.bsr !== null).length;
+  const withReviews = priced.filter((item) => item.reviews !== null).length;
 
   const segments = [];
   for (const seg of SEGMENTS) {
     const slice = priced.filter((item) => {
-      const rank = item.index + 1;
+      const rank = item.seq + 1;
       return rank >= seg.from && rank <= seg.to;
     });
     if (slice.length === 0) {
@@ -141,6 +147,8 @@ export function analyzeSegments({ rows = [], channel = 'amazon-fba', fx = 7.1, p
   return {
     segments,
     total: priced.length,
-    note: '分段按**样本内销量排名**切；样本来自实际采集的候选，不是类目全量。净利率按各渠道成本模型测算（广告 10% / 退货 5% / 佣金按渠道）。',
+    basis: withBsr >= priced.length * 0.5 ? 'BSR 升序（页面实测值）' : (withReviews >= priced.length * 0.5 ? '评论数降序（销量代理）' : '采集顺序'),
+    withBsr,
+    note: '分段按 ' + (withBsr >= priced.length * 0.5 ? 'BSR 升序' : (withReviews >= priced.length * 0.5 ? '评论数降序（销量代理）' : '采集顺序')) + ' 切，覆盖样本内前 100 名；样本来自实际采集的候选，不是类目全量。',
   };
 }
