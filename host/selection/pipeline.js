@@ -11,6 +11,7 @@ import { evaluateBatch } from './kpis.js';
 import { suggestDifferentiation } from './differentiate.js';
 import { buildDecisionBrief, coachFor, compareChannels } from './brief.js';
 import { decide, evaluateProfileFit, getProfile } from './profiles.js';
+import { analyzeSegments } from './segments.js';
 import { renderSelectionReport, renderSelectionCsv, sensitivity } from './report.js';
 
 /** 最小 RFC4180 CSV 解析（支持引号、逗号、换行、BOM）。 */
@@ -144,6 +145,7 @@ export async function screenCandidates({
     item.brief.channels = compareChannels(item, { fx });
     item.coach = coachFor(item, item.brief);
   }
+  batch.segmentAnalysis = analyzeSegments({ rows: list, channel, fx, profile: prof });
   batch.summary.decisions = {
     做: batch.results.filter((item) => item.decision.decision === '做').length,
     小批量测: batch.results.filter((item) => item.decision.decision === '小批量测').length,

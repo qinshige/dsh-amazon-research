@@ -129,8 +129,22 @@ export function evaluateProfileFit(candidate, profileInput = 'beginner', channel
     }
   }
 
-  const status = fails.length > 0 ? '不适合' : (warnings.length > 0 ? '需条件' : '适合');
-  return { profileId: profile.id, channel, priceBand: band, status, fails, warnings };
+  // 画像不适配不等于「这个品不能做」——要区分「硬性冲突」与「可以换切入点」。
+  // 硬性冲突（不适合）：认证类目（合规门槛高）、大件抛货（成本结构决定）。
+  // 可换切入点（需换切入）：售价带不匹配、变体偏多、季节性、净利率偏低。
+  const HARD_FAIL_LABELS = ['需要认证', '重量超出画像上限', '大件抛货'];
+  const hardFails = fails.filter((item) => HARD_FAIL_LABELS.includes(item.label));
+  const softFails = fails.filter((item) => !HARD_FAIL_LABELS.includes(item.label));
+  const status = hardFails.length > 0 ? '不适合' : (softFails.length > 0 ? '需换切入' : (warnings.length > 0 ? '需条件' : '适合'));
+  const advice = [];
+  for (const item of softFails) {
+    if (item.label === '售价低于画像下限') advice.push('提价到 $' + band.min + ' 以上，或改做更高客单的组合装/材质款');
+    else if (item.label === '售价高于画像上限') advice.push('这个价格带需要品牌与售后能力；新手可换到 $' + band.min + '–$' + band.max + ' 带');
+    else if (item.label === '变体数超出画像上限') advice.push('收敛变体到 ' + profile.maxVariants + ' 个以内（先做主推色/尺寸）');
+    else if (item.label === '强季节性') advice.push('避开强季节品，或把备货压到 1 个周期内');
+    else if (item.label === '净利率低于画像红线') advice.push('压采购价 / 提价 / 换材料，或换到更高客单的款');
+  }
+  return { profileId: profile.id, channel, priceBand: band, status, fails, hardFails, softFails, warnings, advice };
 }
 
 /** 结论：把十维档位 + 画像适配合成一句人话。 */
@@ -140,7 +154,18 @@ export function decide(candidate, fit, profileInput = 'beginner') {
     return { decision: '不做', reason: '命中一票否决：' + candidate.vetoes.map((v) => v.label).join('、') };
   }
   if (fit.status === '不适合') {
-    return { decision: '不做', reason: '不适合你的画像：' + fit.fails.map((f) => f.label).join('、') };
+    return {
+      decision: '不做',
+      reason: '硬性冲突：' + fit.hardFails.map((f) => f.label + '（' + f.detail + '）').join('、'),
+      advice: fit.advice,
+    };
+  }
+  if (fit.status === '需换切入') {
+    return {
+      decision: '换切入后再看',
+      reason: '不是硬性否决，但当前打法不适合你的画像：' + fit.softFails.map((f) => f.label).join('、'),
+      advice: fit.advice,
+    };
   }
   if (candidate.tier === '待复核') {
     return { decision: '先补数', reason: candidate.tierReason };

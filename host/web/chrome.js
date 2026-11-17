@@ -30,6 +30,19 @@ const APPLESCRIPT = `on run argv
       set t to make new tab at end of tabs of front window with properties {URL:theURL}
       return (id of t) as string
     end tell
+  else if verb is "close" then
+    set tid to item 2 of argv
+    tell application "Google Chrome"
+      repeat with w in windows
+        repeat with i from (count of tabs of w) to 1 by -1
+          if ((id of (item i of tabs of w)) as string) is tid then
+            close (item i of tabs of w)
+            return "closed"
+          end if
+        end repeat
+      end repeat
+    end tell
+    return "notfound"
   else if verb is "go" then
     set theURL to item 2 of argv
     set tid to item 3 of argv
@@ -181,11 +194,22 @@ export async function waitFor(tabId, readyJs, { timeout = 45, intervalMs = 2000,
   return false;
 }
 
-/** 关闭标签页（尽力而为） */
+/**
+ * 真正关闭标签页。
+ *
+ * 为什么要改：旧实现只是 `location.href = "about:blank"` —— 标签页**并没有被关掉**，
+ * 只是变成空白页留在窗口里。批量抓 100+ 个详情页就会在 Chrome 里堆出上百个标签页
+ * （实测：抓 90 个详情页后 Chrome 有 189 个标签页，页面被自己的空白页淹没）。
+ */
 export async function closeTab(tabId) {
   try {
-    await osa(['go', 'about:blank', tabId], 30_000);
+    await osa(['close', tabId], 30_000);
   } catch {
-    /* 忽略 */
+    /* 关不掉就退回清空内容，避免留白页 */
+    try {
+      await osa(['go', 'about:blank', tabId], 20_000);
+    } catch {
+      /* 忽略 */
+    }
   }
 }

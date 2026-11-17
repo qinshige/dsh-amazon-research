@@ -5,6 +5,8 @@
  * 只渲染传入的真实数据；缺失项显式写「未取到 / 待复核」。
  */
 
+import { CONFIDENCE } from './evidence.js';
+
 const TIER_ORDER = ['一档', '二档', '三档', '待复核', '淘汰'];
 
 /** KPI → 输入列 → 证据类型：保证报告里每个数字都能追到采集表的一列。 */
@@ -184,6 +186,28 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
     for (const item of brief.changeMyMind) push('- ' + item);
     push('');
 
+  // 1.2 数据可信度总览
+  const confidenceCounts = {};
+  for (const item of results) {
+    const level = item.dataConfidence ? item.dataConfidence.level : 'unknown';
+    confidenceCounts[level] = (confidenceCounts[level] || 0) + 1;
+  }
+  push('### 1.2 数据可信度总览', '');
+  push(...table(['可信度', '品数', '含义'], [
+    ['高', String(confidenceCounts.high || 0), '价格 / 采购价 / 净利率齐备，结论可直接采信'],
+    ['中', String(confidenceCounts.medium || 0), '缺 1 项关键数据，结论仅供参考'],
+    ['低', String(confidenceCounts.low || 0), '缺 2 项以上，只能当线索'],
+  ].filter((row) => Number(row[1]) > 0)));
+  push('');
+  const gaps = {};
+  for (const item of results) {
+    for (const gap of (item.dataConfidence && item.dataConfidence.gaps) || []) gaps[gap] = (gaps[gap] || 0) + 1;
+  }
+  if (Object.keys(gaps).length > 0) {
+    push('缺什么（按影响排序）：', '');
+    for (const [gap, count] of Object.entries(gaps).sort((a, b) => b[1] - a[1])) push('- ' + gap + '：' + count + ' 个');
+    push('');
+  }
     if (brief.profile.id === 'beginner' && top.coach) {
       push('### 1.2 新手教练（老手可跳过）', '');
       push('**为什么是这个结论**', '');
@@ -234,7 +258,32 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
     push('> 所以不用于淘汰单品 —— 要不要做这个类目，看这里；具体做哪个品，看下一节的单品档位。', '');
     push('');
   }
-  push('### 1.5 分档统计与候选（插件的选品结论）', '');
+  // 1.5 分段利润（回答「第 50–100 名还有没有利润」）
+  if (batch.segmentAnalysis && batch.segmentAnalysis.segments) {
+    const segs = batch.segmentAnalysis.segments.filter((seg) => seg.count > 0);
+    if (segs.length > 0) {
+      push('### 1.5 分段利润：这个类目里，长尾还有没有利润？', '');
+      push(...table(['分段', '品数', '已测算', '平均售价', '中位售价', '平均评论', '平均变体', '平均净利率', '中位净利率', '正利润占比', '≥25%占比', '能不能做'], segs.map((seg) => [
+        seg.label,
+        String(seg.count),
+        String(seg.pricedCount),
+        money(seg.avgPrice),
+        money(seg.medianPrice),
+        seg.avgReviews === null ? '—' : String(Math.round(seg.avgReviews)),
+        seg.avgVariants === null ? '—' : seg.avgVariants.toFixed(1),
+        seg.avgMargin === null ? '—' : pct(seg.avgMargin, 1),
+        seg.medianMargin === null ? '—' : pct(seg.medianMargin, 1),
+        seg.positiveRatio === null ? '—' : pct(seg.positiveRatio, 0),
+        seg.goodRatio === null ? '—' : pct(seg.goodRatio, 0),
+        seg.verdict + '（' + seg.why + '）',
+      ])));
+      push('');
+      push('> ' + batch.segmentAnalysis.note, '');
+      push('> 读法：头部（1–10）集中度高说明**头部很贵**（评论壁垒高），真正的机会常在腰部/长尾 —— 那里评论少、售价接近头部、利润反而更高。**不要因为 Top3 集中度高就否掉整个类目**。', '');
+      push('');
+    }
+  }
+  push('### 1.6 分档统计与候选（插件的选品结论）', '');
   push('**分档：' + TIER_ORDER.map((tier) => tier + ' ' + (summary.tiers[tier] || 0)).join(' ｜ ') + '**', '');
   if (summary.decisions) {
     push('**结论分布：' + Object.entries(summary.decisions).map(([key, value]) => key + ' ' + value).join(' ｜ ') + '**', '');
@@ -288,16 +337,27 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
     if (results.length > detail.length) push('（其余 ' + (results.length - detail.length) + ' 个候选的逐项明细见 selection.csv。）', '');
   }
 
-  // 四、否决
-  push('## 四、一票否决清单', '');
+  // 四、否决（含依据链）
+  push('## 四、一票否决清单（含依据）', '');
+  push('> 每条否决都给出：依据数值、阈值、数据来源、可信度。**类目级风险不淘汰单品**（见 1.4），只看单品自身指标。', '');
   const vetoed = results.filter((item) => item.vetoes.length > 0);
   if (vetoed.length === 0) {
     push('本批未命中一票否决项。', '');
   } else {
     for (const item of vetoed) {
-      push('- **' + (item.asin || '未命名') + '**：' + item.vetoes.map((v) => v.label + '（' + v.detail + '）').join('；'));
+      push('### ' + (item.asin || '未命名') + ' ' + (item.name || ''), '');
+      push(...table(['否决项', '依据数值', '阈值', '数据来源', '可信度'], item.vetoes.map((v) => {
+        const ev = v.evidence || {};
+        return [
+          v.label,
+          (ev.value === null || ev.value === undefined || ev.value === '') ? '—' : String(ev.value) + (ev.unit || ''),
+          ev.threshold || '—',
+          ev.source || '—',
+          (ev.confidence && ev.confidence !== 'unknown' ? (CONFIDENCE[ev.confidence] || CONFIDENCE.unknown).label : '未知'),
+        ];
+      })));
+      push('');
     }
-    push('');
   }
 
   // 五、差异化

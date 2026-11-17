@@ -15,6 +15,7 @@
  * 不用行业常识补 ASIN / 售价 / 评论数 / 销量。
  */
 import { landedCost } from '../sourcing/cost-model.js';
+import { assessDataConfidence, buildEvidenceChain } from './evidence.js';
 
 export const OK = '达标';
 export const WARN = '警戒';
@@ -467,6 +468,7 @@ export function evaluateCandidate(row, { fx = 7.1, smallVolumeUnits = 200, chann
       : '命中率 ' + Math.round(hitRate * 100) + '%，净利率 ' + (margin === null ? '未知' : (margin * 100).toFixed(1) + '%');
   }
 
+  const evidenceChain = buildEvidenceChain({ candidate: { checks, vetoes, classRisks } });
   return {
     asin: c.asin,
     name: c.name,
@@ -484,8 +486,10 @@ export function evaluateCandidate(row, { fx = 7.1, smallVolumeUnits = 200, chann
     checks,
     judgedCount: judged.length,
     hitRate,
-    vetoes,
+    vetoes: evidenceChain.vetoes,
     classRisks,
+    evidenceChain,
+    dataConfidence: assessDataConfidence({ checks, margin, priceUSD: c.priceUSD, provenance: { offerUrl: c.offerUrl } }),
     unknown,
     tier,
     tierReason,

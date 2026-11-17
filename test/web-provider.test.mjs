@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { selectCategoryWeb } from '../host/category-web.js';
@@ -127,4 +128,16 @@ test('web 取数链路：归一化 + 评分 + 落盘（离线桩）', async () =
       Object.assign(providers.sellerspriteWebProvider, original);
     }
   });
+});
+
+test('chrome.js：closeTab 用真正的 close（不是 about:blank 导航）', () => {
+  const src = readFileSync(new URL('../host/web/chrome.js', import.meta.url), 'utf8');
+  assert.match(src, /verb is "close"/, '必须有关闭标签页的 AppleScript 分支');
+  assert.match(src, /close \(item i of tabs of w\)/, '必须真正 close 标签页');
+  assert.doesNotMatch(src, /osa\(\['go', 'about:blank', tabId\]\), 30_000\)/, 'closeTab 不能只导航到 about:blank');
+});
+test('detail-enrich.js：复用同一个标签页，不逐个开新标签', () => {
+  const src = readFileSync(new URL('../host/selection/detail-enrich.js', import.meta.url), 'utf8');
+  assert.match(src, /tabId === null/, '必须复用已有标签页');
+  assert.match(src, /location\.href\.indexOf/, '必须等 URL 里的 ASIN 匹配再读，否则会读到上一个 ASIN 的数据');
 });

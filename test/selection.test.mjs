@@ -8,6 +8,9 @@ import { buildSelectionPlan, amazonDomain } from '../host/selection/channels.js'
 import { suggestDifferentiation } from '../host/selection/differentiate.js';
 import { inputFingerprint, parseCsv, screenCandidates } from '../host/selection/pipeline.js';
 import { parseDimsCm, parseWeightG, productsToSelectionRows } from '../host/selection/from-products.js';
+import { verifyOffer, extractPackCount } from '../host/selection/verify.js';
+import { analyzeSegments } from '../host/selection/segments.js';
+import { assessDataConfidence, buildEvidenceChain } from '../host/selection/evidence.js';
 import { decide, evaluateProfileFit } from '../host/selection/profiles.js';
 import { buildDecisionBrief, compareChannels } from '../host/selection/brief.js';
 import { sensitivity } from '../host/selection/report.js';
@@ -224,6 +227,87 @@ test('包装对齐：单件价 × 件数 = 可售单位成本', () => {
   assert.match(single.marginSource, /× 20 件/);
   const wrong = evaluateCandidate({ ...baseRow, 售价USD: 17.99, 采购价CNY: 1.7, 重量g: 290 });
   assert.ok(wrong.margin > single.margin, '未对齐时净利率会被高估');
+});
+
+test('采价校验器：错品拒绝、单件价自动折算、重量交叉验证', () => {
+  // 件数抽取
+  assert.equal(extractPackCount('20PCS Glove Clips'), 20);
+  assert.equal(extractPackCount('Value 2 Pack'), 2);
+  assert.equal(extractPackCount('Jetec 6 Pcs'), 6);
+  assert.equal(extractPackCount('黑色4个-8字扣'), 4);
+
+  // 错品：含「手套」的扎染材料包必须被拒
+  const wrong = verifyOffer({
+    amazonTitle: 'ZOEYES 20PCS Glove Clips for Work Glove Holder',
+    amazonPackG: 308, amazonPackUnits: 20,
+    sourceTitle: '5-10人装扎染材料包,一次性手套（50双）',
+    sourcePackPriceCNY: 0.9,
+  });
+  assert.equal(wrong.ok, false);
+  assert.equal(wrong.confidence, 'low');
+  assert.ok(wrong.reasons.some((r) => r.includes('排除词')));
+
+  // 单件价 × 20 = 可售单位成本
+  const single = verifyOffer({
+    amazonTitle: '20 Pieces Glove Clips for Work, Glove Holder Clip',
+    amazonPackG: 290, amazonPackUnits: 20,
+    sourceTitle: '手套夹子 劳保多功能扣件挂钩户外工作夹子防丢扣 gloveclip 黑色',
+    sourcePackWeightG: 16, sourceUnitPriceCNY: 1.7,
+  });
+  assert.equal(single.ok, true);
+  assert.equal(single.confidence, 'high');
+  assert.equal(single.purchaseCNY, 34);
+
+  // 整包价 + 整包重（4 个装）→ 直接用整包价，重量自动折单重
+  const pack = verifyOffer({
+    amazonTitle: '4 Pcs Black Glove Clips for Work',
+    amazonPackG: 56, amazonPackUnits: 4,
+    sourceTitle: '跨境4个装多功能塑料防丢手套夹劳保手套夹子挂扣登山扣gloveclip',
+    sourcePackCount: 4, sourcePackWeightG: 52, sourcePackPriceCNY: 2.96,
+  });
+  assert.equal(pack.ok, true);
+  assert.equal(pack.purchaseCNY, 2.96);
+});
+
+test('分段分析：按销量切段，每段给利润与可做性', () => {
+  const rows = [];
+  for (let i = 1; i <= 60; i += 1) {
+    rows.push({
+      ASIN: 'B0' + String(i).padStart(8, '0'),
+      '售价USD': i <= 10 ? 30 : (i <= 30 ? 20 : 15),
+      '月销': 1000 - i * 10,
+      '采购价CNY': i <= 10 ? 12 : 3,
+      '重量g': 200,
+      '评论数': i <= 10 ? 2000 : 100,
+      '变体数': 2,
+    });
+  }
+  const analysis = analyzeSegments({ rows, channel: 'amazon-fba', fx: 7.1 });
+  assert.equal(analysis.segments.length, 4);
+  const s1 = analysis.segments[0];
+  const s3 = analysis.segments[2];
+  assert.equal(s1.count, 10);
+  assert.ok(s1.avgMargin !== null);
+  assert.ok(s1.avgPrice > s3.avgPrice, '头部售价应高于长尾');
+  assert.ok(s1.avgReviews > s3.avgReviews, '头部评论数应高于长尾');
+  assert.ok(s1.why.length > 0, '每段必须给出可做性依据');
+  assert.ok(['可做', '可小批量试', '只能跑体量', '暂不做'].includes(s1.verdict));
+});
+
+test('否决依据链：每条否决带数值、阈值、来源、可信度', () => {
+  const candidate = evaluateCandidate({ ...baseRow, 变体数: 9 });
+  assert.ok(candidate.vetoes.length > 0);
+  const veto = candidate.vetoes.find((v) => v.code === 'VARIANTS');
+  assert.ok(veto.evidence, '否决必须带依据');
+  assert.equal(veto.evidence.value, '9');
+  assert.ok(veto.evidence.threshold.includes('3'));
+  assert.ok(veto.evidence.source.includes('详情页'));
+  assert.ok(veto.evidence.confidence);
+  const chain = buildEvidenceChain({ candidate });
+  assert.ok(chain.vetoes.length > 0);
+  const conf = assessDataConfidence({ checks: candidate.checks, margin: candidate.margin, priceUSD: candidate.priceUSD, provenance: { offerUrl: null } });
+  assert.ok(['high', 'medium', 'low'].includes(conf.level));
+  assert.ok(conf.gaps.length > 0, '缺采购价必须被记为缺口');
 });
 
 test('实时会话：事件落盘 + 快照可读', async () => {
