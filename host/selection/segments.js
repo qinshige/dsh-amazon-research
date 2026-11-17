@@ -51,7 +51,7 @@ function median(list, pick) {
  * @param {{rows:Array<object>, channel?:string, fx?:number, profile?:object}} input
  *   rows 必须是采集表行（已含 售价USD / 评论数 / 采购价CNY / 重量g 等）
  */
-export function analyzeSegments({ rows = [], channel = 'amazon-fba', fx = 7.1, profile = null } = {}) {
+export function analyzeSegments({ rows = [], channel = 'amazon-fba', fx = 6.7, costFx = null, settleFx = 6.6, profile = null } = {}) {
   const scored = rows.map((row, index) => {
     const price = num(row['售价USD'] ?? row.priceUSD);
     // 销量：优先我们自己的实测月销，其次用卖家精灵扩展抓到的销量
@@ -104,7 +104,8 @@ export function analyzeSegments({ rows = [], channel = 'amazon-fba', fx = 7.1, p
         adRate: num(row['广告占比'] ?? row.adPct) ?? undefined,
         returnRate: num(row['退货率'] ?? row.returnPct) ?? undefined,
         commissionRate: channel.startsWith('amazon') ? (num(row['佣金占比'] ?? row.commissionPct) ?? undefined) : undefined,
-        fx,
+        costFx: costFx === null || costFx === undefined ? fx : costFx,
+        settleFx,
       });
       if (!calc) continue;
       margins.push(calc.netMargin);

@@ -35,7 +35,7 @@ function pct(value, digits = 1) {
  *   TikTok Shop 佣金 6%、无 FBA 费、跨境直发 → 可以赚。
  *   只按一个渠道判生死，会对做 TK / 独立站 / 线下渠道的卖家系统性误判。
  */
-export function compareChannels(candidate, { fx = 7.1 } = {}) {
+export function compareChannels(candidate, { fx = 6.7, costFx = null, settleFx = 6.6 } = {}) {
   const inputs = candidate.inputs || {};
   if (inputs.purchaseCNY === null || inputs.purchaseCNY === undefined) return null;
   if (!candidate.priceUSD) return null;
@@ -47,7 +47,8 @@ export function compareChannels(candidate, { fx = 7.1 } = {}) {
       priceCNY: inputs.purchaseCNY,
       weightG: inputs.weightG ?? null,
       priceUSD: candidate.priceUSD,
-      fx,
+      costFx: costFx === null || costFx === undefined ? fx : costFx,
+      settleFx,
     });
     if (!calc) continue;
     rows.push({
@@ -60,7 +61,11 @@ export function compareChannels(candidate, { fx = 7.1 } = {}) {
       returnRate: channel.returnRate,
       netMargin: calc.netMargin,
       netProfitUSD: calc.netProfitUSD,
+      netProfitCNY: calc.netProfitCNY,
       totalCostUSD: calc.totalCostUSD,
+      totalCostCNY: calc.totalCostCNY,
+      costFx: calc.costFx,
+      settleFx: calc.settleFx,
       verdict: channel.id === 'amazon-fbm'
         ? '需另计买家运费与退货成本'
         : (calc.netMargin > 0.30 ? '优秀' : (calc.netMargin > 0.25 ? '可做' : (calc.netMargin > 0.15 ? '只能跑体量' : (calc.netMargin > 0 ? '几乎不赚' : '亏损')))),
@@ -80,7 +85,7 @@ function checkOf(candidate, key) {
  * 利润安全边际：采购上限、售价下限、广告上限、退货上限。
  * 公式来自全成本口径；目标毛利率 = 画像净利率红线。
  */
-export function safetyMargin(candidate, profile, fx = 7.1) {
+export function safetyMargin(candidate, profile, fx = 6.7) {
   const p = candidate.profit;
   if (!p) return null;
   const price = n(p.priceUSD);
@@ -113,7 +118,7 @@ export function safetyMargin(candidate, profile, fx = 7.1) {
   };
 }
 
-function firstBatch(candidate, profile, targetMonthlyUnits, fx = 7.1) {
+function firstBatch(candidate, profile, targetMonthlyUnits, fx = 6.7) {
   const p = candidate.profit;
   if (!p || !candidate.inputs || candidate.inputs.purchaseCNY === null) {
     return { available: false, reason: '缺采购价，无法估算首批资金' };
@@ -124,7 +129,7 @@ function firstBatch(candidate, profile, targetMonthlyUnits, fx = 7.1) {
   // 履约成本按件计，必须进首批资金：TK 渠道头程并入了履约，只算 firstMile 会低估。
   const freightCNY = ((n(p.firstMileUSD) || 0) + (n(p.fbaFeeUSD) || 0)) * fx * units;
   const capitalCNY = goodsCNY + freightCNY;
-  const monthlyProfitCNY = (n(p.netProfitUSD) || 0) * fx * targetMonthlyUnits;
+  const monthlyProfitCNY = (n(p.netProfitCNY) ?? ((n(p.netProfitUSD) || 0) * fx)) * targetMonthlyUnits;
   const paybackMonths = monthlyProfitCNY > 0 ? capitalCNY / monthlyProfitCNY : null;
   const sampleUnits = variantCount * 50;
   const sampleCapitalCNY = (candidate.inputs.purchaseCNY + ((n(p.firstMileUSD) || 0) + (n(p.fbaFeeUSD) || 0)) * fx) * sampleUnits;
@@ -207,7 +212,7 @@ function changeMyMind(candidate, profile, safety, batch) {
  * 生成一个候选的决策单。
  * @param {{candidate:object, profile:string|object, targetMonthlyUnits?:number, fx?:number}} input
  */
-export function buildDecisionBrief({ candidate, profile: profileInput = 'beginner', targetMonthlyUnits, fx = 7.1 } = {}) {
+export function buildDecisionBrief({ candidate, profile: profileInput = 'beginner', targetMonthlyUnits, fx = 6.7 } = {}) {
   const profile = typeof profileInput === 'string' ? getProfile(profileInput) : (profileInput || getProfile('beginner'));
   const target = Number.isFinite(targetMonthlyUnits) && targetMonthlyUnits > 0 ? targetMonthlyUnits : profile.targetMonthlyUnits;
   const fit = candidate.profileFit || { status: '适合', fails: [], warnings: [] };

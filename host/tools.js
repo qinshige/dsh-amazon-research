@@ -623,7 +623,10 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           csv: { type: 'string', description: 'screen 用：CSV 文本（与 rows 二选一），首行表头' },
           productLimit: { type: 'integer', minimum: 10, maximum: 100, description: 'collect 用：抓多少个 Top 商品，默认 50' },
           thenScreen: { type: 'boolean', description: 'collect 用：采集完直接体检并出报告（默认 true）' },
-          fx: { type: 'number', description: '汇率（1 USD = ? CNY），默认 7.1' },
+          fx: { type: 'number', description: '成本汇率（1 USD = ? CNY），默认 6.7（人民币成本折美元）' },
+          costFx: { type: 'number', description: '成本汇率（1 USD = ? CNY），默认 6.7；把 1688 采购价等人民币成本折成美元时用' },
+          settleFx: { type: 'number', description: '结算汇率（1 USD = ? CNY），默认 6.6；把美元收入/利润折成人民币结算时用' },
+          liveFx: { type: 'boolean', description: '是否取实时汇率（默认 false；取不到自动回落默认值并在报告标注）' },
           title: { type: 'string', description: '报告标题，默认用 category 或「选品体检」' },
           source: { type: 'string', description: '候选来源标注，如「BS 榜 / 竞品店铺 / 手动采集」' },
           channel: {
@@ -712,7 +715,10 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
               rows,
               title: asString(args?.title) || (market && market.label) || '选品体检',
               marketplace,
-              fx: typeof args?.fx === 'number' && Number.isFinite(args.fx) && args.fx > 0 ? args.fx : 7.1,
+              fx: typeof args?.fx === 'number' && Number.isFinite(args.fx) && args.fx > 0 ? args.fx : 6.7,
+              costFx: typeof args?.costFx === 'number' && Number.isFinite(args.costFx) && args.costFx > 0 ? args.costFx : null,
+              settleFx: typeof args?.settleFx === 'number' && Number.isFinite(args.settleFx) && args.settleFx > 0 ? args.settleFx : 6.6,
+              liveFx: args?.liveFx === true,
               outputRoot,
               dataDir,
               source: collected.source,
@@ -745,13 +751,18 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
         }
 
         const plan = (category || nodeIdPath || keyword) ? buildSelectionPlan(planInput) : null;
-        const fx = typeof args?.fx === 'number' && Number.isFinite(args.fx) && args.fx > 0 ? args.fx : 7.1;
+        const fx = typeof args?.fx === 'number' && Number.isFinite(args.fx) && args.fx > 0 ? args.fx : 6.7;
+        const costFx = typeof args?.costFx === 'number' && Number.isFinite(args.costFx) && args.costFx > 0 ? args.costFx : null;
+        const settleFx = typeof args?.settleFx === 'number' && Number.isFinite(args.settleFx) && args.settleFx > 0 ? args.settleFx : 6.6;
         try {
           const result = await screenCandidates({
             rows,
             title: asString(args?.title) || category || '选品体检',
             marketplace,
             fx,
+            costFx,
+            settleFx,
+            liveFx: args?.liveFx === true,
             outputRoot,
             dataDir,
             source: asString(args?.source) || 'research_product_select',

@@ -211,7 +211,8 @@ export function normalizeCandidate(row = {}) {
  * 全成本净利测算：优先按行内参数（采购价/件重/配送费/广告/退货/佣金）算；
  * 缺采购价时退回调用方给定的「净利率」字段；都没有则返回 null（未知）。
  */
-export function computeMargin(c, { fx = 7.1, channel = 'amazon-fba' } = {}) {
+export function computeMargin(c, { fx = 6.7, costFx = null, settleFx = 6.6, channel = 'amazon-fba' } = {}) {
+  const costRate = costFx === null || costFx === undefined ? fx : costFx;
   // 包装对齐：采集表若给的是「1688 单件价」，必须乘以 Amazon 一个可售单位的件数，
   // 否则采购成本会被低估 10~100 倍（实测：20 个装手套夹，¥1.70/个 当成整包价 → 少算 20 倍）。
   // 优先级：显式可售单位成本（采购价CNY）> 单件价 × 件数。
@@ -252,6 +253,10 @@ export function computeMargin(c, { fx = 7.1, channel = 'amazon-fba' } = {}) {
     netProfitUSD = calc.priceUSD - totalCostUSD;
     netMargin = netProfitUSD / calc.priceUSD;
     firstMileUSD = c.firstMileUSD;
+    // 实测头程覆盖后，人民币口径要同步重算（结算汇率不变）
+    calc.totalCostCNY = Number((totalCostUSD * calc.settleFx).toFixed(2));
+    calc.netProfitCNY = Number((netProfitUSD * calc.settleFx).toFixed(2));
+    calc.priceCNY_settle = Number((calc.priceUSD * calc.settleFx).toFixed(2));
     source = '采购价 + 实测头程 + FBA + 佣金 + 广告 + 退货 + 其它（全成本）';
   }
   return {
@@ -273,6 +278,13 @@ export function computeMargin(c, { fx = 7.1, channel = 'amazon-fba' } = {}) {
       netMargin,
       logisticsRatio: (firstMileUSD + calc.fbaFeeUSD) / calc.priceUSD,
       purchaseRatio: calc.purchaseUSD / calc.priceUSD,
+      // 双汇率口径：成本项按成本汇率折美元，利润额按结算汇率折人民币
+      costFx: calc.costFx,
+      settleFx: calc.settleFx,
+      totalCostCNY: calc.totalCostCNY,
+      netProfitCNY: calc.netProfitCNY,
+      priceCNY_settle: calc.priceCNY_settle,
+      grossProfitCNY: calc.grossProfitCNY,
     },
   };
 }
@@ -289,12 +301,12 @@ function statusFrom(condition, okStatus = OK, badStatus = BAD) {
  * 单个候选品的十维体检。
  * @returns {{asin:string, tier:string, hitRate:number, judgedCount:number, checks:Array, vetoes:Array, unknown:Array, margin:number|null, profit:object|null}}
  */
-export function evaluateCandidate(row, { fx = 7.1, smallVolumeUnits = 200, channel = 'amazon-fba' } = {}) {
+export function evaluateCandidate(row, { fx = 6.7, costFx = null, settleFx = 6.6, smallVolumeUnits = 200, channel = 'amazon-fba' } = {}) {
   const c = normalizeCandidate(row);
   const checks = [];
   const vetoes = [];
   const unknown = [];
-  const marginInfo = computeMargin(c, { fx, channel });
+  const marginInfo = computeMargin(c, { fx, costFx, settleFx, channel });
   const margin = marginInfo ? marginInfo.netMargin : null;
   const smallVolume = c.monthlySales !== null && c.monthlySales > 0 && c.monthlySales <= smallVolumeUnits;
 
@@ -354,7 +366,7 @@ export function evaluateCandidate(row, { fx = 7.1, smallVolumeUnits = 200, chann
   else if (c.priceUSD < 10) add(check('priceBand', 3, '售价区间', BAD, '$' + c.priceUSD.toFixed(2), '利润被物流吃掉'));
   else add(check('priceBand', 3, '售价区间', WARN, '$' + c.priceUSD.toFixed(2), c.priceUSD > 80 ? '需品牌与售后' : '偏离 15–45 美元'));
 
-  const purchaseRatio = marginInfo?.profit?.purchaseRatio ?? (c.priceUSD && c.purchaseCNY !== null ? (c.purchaseCNY / fx) / c.priceUSD : null);
+  const purchaseRatio = marginInfo?.profit?.purchaseRatio ?? (c.priceUSD && c.purchaseCNY !== null ? (c.purchaseCNY / (costFx ?? fx)) / c.priceUSD : null);
   if (purchaseRatio === null) add(check('purchaseRatio', 3, '采购成本占售价', UNKNOWN, '—'));
   else if (purchaseRatio <= 0.25) add(check('purchaseRatio', 3, '采购成本占售价', OK, (purchaseRatio * 100).toFixed(0) + '%'));
   else if (purchaseRatio <= 0.35) add(check('purchaseRatio', 3, '采购成本占售价', WARN, (purchaseRatio * 100).toFixed(0) + '%'));

@@ -13,6 +13,7 @@ import { buildDecisionBrief, coachFor, compareChannels } from './brief.js';
 import { decide, evaluateProfileFit, getProfile } from './profiles.js';
 import { analyzeSegments } from './segments.js';
 import { renderDataReport, renderSelectionReport, renderSelectionCsv, sensitivity } from './report.js';
+import { getFx } from '../fx.js';
 
 /** 最小 RFC4180 CSV 解析（支持引号、逗号、换行、BOM）。 */
 export function parseCsv(text) {
@@ -108,7 +109,9 @@ export async function screenCandidates({
   rows,
   title = '选品体检',
   marketplace = 'US',
-  fx = 7.1,
+  fx = 6.7,
+  costFx = null,
+  settleFx = 6.6,
   outputRoot,
   dataDir = null,
   source = '手动 / 采集表',
@@ -117,6 +120,7 @@ export async function screenCandidates({
   targetMonthlyUnits = null,
   channel = 'amazon-fba',
   reportStyle = 'data',
+  liveFx = false,
 } = {}) {
   const list = Array.isArray(rows) ? rows.filter((row) => row && typeof row === 'object') : [];
   if (list.length === 0) {
@@ -135,18 +139,27 @@ export async function screenCandidates({
     throw error;
   }
 
+  // 汇率：可选实时取数；取不到回落默认（成本 6.7 / 结算 6.6）。
+  const fxCfg = await getFx({
+    live: liveFx === true,
+    costFx: costFx === null || costFx === undefined ? undefined : costFx,
+    settleFx: settleFx === null || settleFx === undefined ? undefined : settleFx,
+  });
+  const effectiveCostFx = fxCfg.costFx;
+  const effectiveSettleFx = fxCfg.settleFx;
+
   const prof = getProfile(profile);
-  const batch = evaluateBatch(list, { fx, channel });
+  const batch = evaluateBatch(list, { fx: effectiveCostFx, costFx: effectiveCostFx, settleFx: effectiveSettleFx, channel });
   for (const item of batch.results) {
     item.profileFit = evaluateProfileFit(item, prof, channel);
     item.decision = decide(item, item.profileFit, prof);
     item.differentiation = suggestDifferentiation(item);
     if (item.profit) item.sensitivity = sensitivity(item.profit);
     item.brief = buildDecisionBrief({ candidate: item, profile: prof, targetMonthlyUnits, fx });
-    item.brief.channels = compareChannels(item, { fx });
+    item.brief.channels = compareChannels(item, { fx: effectiveCostFx, costFx: effectiveCostFx, settleFx: effectiveSettleFx });
     item.coach = coachFor(item, item.brief);
   }
-  batch.segmentAnalysis = analyzeSegments({ rows: list, channel, fx, profile: prof });
+  batch.segmentAnalysis = analyzeSegments({ rows: list, channel, fx: effectiveCostFx, costFx: effectiveCostFx, settleFx: effectiveSettleFx, profile: prof });
   batch.summary.decisions = {
     做: batch.results.filter((item) => item.decision.decision === '做').length,
     小批量测: batch.results.filter((item) => item.decision.decision === '小批量测').length,
@@ -176,7 +189,9 @@ export async function screenCandidates({
     batch,
     plan: planData,
     source,
-    fx,
+    fx: effectiveCostFx,
+    costFx: effectiveCostFx,
+    settleFx: effectiveSettleFx,
     profile: prof,
     targetMonthlyUnits,
     runId: run.runId,
@@ -202,6 +217,8 @@ export async function screenCandidates({
     profile: prof.id,
     channel,
     inputHash,
+    costFx: effectiveCostFx,
+    settleFx: effectiveSettleFx,
     engine: 'selection-v1',
   };
   const scores = {
@@ -219,7 +236,9 @@ export async function screenCandidates({
     title,
     marketplace: site,
     source,
-    fx,
+    fx: effectiveCostFx,
+    costFx: effectiveCostFx,
+    settleFx: effectiveSettleFx,
     inputHash,
     inputCount: list.length,
     // 原始输入行原样保存：报告里任何数字都可以回到这里核对。

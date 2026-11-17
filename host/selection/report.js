@@ -126,7 +126,7 @@ function planSection(plan) {
  * 渲染选品体检报告。
  * @param {{title:string, marketplace:string, generatedAt:string, batch:object, plan?:object, source?:string, fx?:number}} params
  */
-export function renderSelectionReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, plan = null, source = '手动/采集表', fx = 7.1, runId = '', inputHash = '', artifacts = [], profile = null, targetMonthlyUnits = null, channel = 'amazon-fba' } = {}) {
+export function renderSelectionReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, plan = null, source = '手动/采集表', fx = 6.7, costFx = null, settleFx = 6.6, runId = '', inputHash = '', artifacts = [], profile = null, targetMonthlyUnits = null, channel = 'amazon-fba' } = {}) {
   const results = batch?.results || [];
   const summary = batch?.summary || { tiers: {}, commonGaps: [], vetoed: 0, needsReview: [], avgMargin: null };
   const lines = [];
@@ -135,7 +135,7 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
   const coachAppendix = [];
 
   push('# ' + title + ' 选品体检报告（' + marketplace + '）', '');
-  push('> 生成时间：' + (generatedAt || '—') + ' ｜ 候选数：' + results.length + ' ｜ 数据来源：' + source + ' ｜ 汇率：1 USD = ' + fx + ' CNY', '');
+  push('> 生成时间：' + (generatedAt || '—') + ' ｜ 候选数：' + results.length + ' ｜ 数据来源：' + source + ' ｜ 成本汇率：' + (costFx === null || costFx === undefined ? fx : costFx) + ' ｜ 结算汇率：' + settleFx, '');
   push('> 运行 ID：' + (runId || '—') + ' ｜ 输入指纹：' + (inputHash || '—'), '');
   push('---', '');
 
@@ -531,7 +531,7 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
  * 决策单、安全边际、分档、分段利润、渠道对照、否决依据链、净利率输入、待复核；
  * 去掉的是解释性文字，**不省略任何数字**。
  */
-export function renderDataReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, source = '手动/采集表', fx = 7.1, runId = '', inputHash = '', profile = null, channel = 'amazon-fba' } = {}) {
+export function renderDataReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, source = '手动/采集表', fx = 6.7, costFx = null, settleFx = 6.6, runId = '', inputHash = '', profile = null, channel = 'amazon-fba' } = {}) {
   const results = batch?.results || [];
   const summary = batch?.summary || { tiers: {}, decisions: {}, commonGaps: [], vetoed: 0, needsReview: [], avgMargin: null, classRisks: [] };
   const lines = [];
@@ -540,8 +540,10 @@ export function renderDataReport({ title = '选品', marketplace = 'US', generat
   const brief = top && top.brief ? top.brief : null;
 
   push('# ' + title + ' ｜ ' + marketplace + ' ｜ ' + channel, '');
-  push('| 生成时间 | 候选数 | 汇率 | 运行 ID | 输入指纹 |', '| --- | --- | --- | --- | --- |');
-  push('| ' + cell(generatedAt || '—') + ' | ' + results.length + ' | 1 USD = ' + fx + ' CNY | ' + cell(runId || '—') + ' | ' + cell(inputHash || '—') + ' |', '');
+  const costRate = costFx === null || costFx === undefined ? fx : costFx;
+  push('| 生成时间 | 候选数 | 成本汇率 | 结算汇率 | 运行 ID | 输入指纹 |', '| --- | --- | --- | --- | --- | --- |');
+  push('| ' + cell(generatedAt || '—') + ' | ' + results.length + ' | ' + costRate + ' | ' + settleFx + ' | ' + cell(runId || '—') + ' | ' + cell(inputHash || '—') + ' |', '');
+  push('> 成本汇率用于把人民币成本（1688 采购价、头程）折成美元；结算汇率用于把美元收入与利润折成人民币。人民币口径的利润额按结算汇率计算。', '');
   push('> 数据来源：' + cell(source), '');
 
   if (brief) {
@@ -611,9 +613,11 @@ export function renderDataReport({ title = '选品', marketplace = 'US', generat
 
   if (brief && brief.channels && brief.channels.length > 1) {
     push('## 6 渠道对照', '');
-    push(...table(['渠道', '履约成本', '佣金', '广告', '退货', '净利率'], brief.channels.map((row) => [
+    push(...table(['渠道', '履约成本', '佣金', '广告', '退货', '净利率', '单件净利¥', '单件总成本¥'], brief.channels.map((row) => [
       row.label, money(row.fulfillmentUSD) + '（' + row.fulfillmentLabel + '）',
       pct(row.referralRate, 0), pct(row.adRate, 0), pct(row.returnRate, 0), pct(row.netMargin, 1),
+      row.netProfitCNY === null || row.netProfitCNY === undefined ? '—' : cny(row.netProfitCNY),
+      row.totalCostCNY === null || row.totalCostCNY === undefined ? '—' : cny(row.totalCostCNY),
     ])));
     push('');
   }
@@ -621,9 +625,10 @@ export function renderDataReport({ title = '选品', marketplace = 'US', generat
   const picks = results.filter((item) => item.tier === '一档' || item.tier === '二档');
   if (picks.length) {
     push('## 7 优先候选（一档 / 二档）', '');
-    push(...table(['ASIN', '档位', '结论', '售价', '采购¥', '净利率', '命中率', '商品'], picks.map((item) => [
+    push(...table(['ASIN', '档位', '结论', '售价', '采购¥', '单件净利¥', '净利率', '命中率', '商品'], picks.map((item) => [
       item.asin || '—', item.tier, item.decision ? item.decision.decision : '—', money(item.priceUSD),
       item.inputs && item.inputs.purchaseCNY !== null && item.inputs.purchaseCNY !== undefined ? '¥' + Number(item.inputs.purchaseCNY).toFixed(2) : '—',
+      item.profit && item.profit.netProfitCNY !== undefined && item.profit.netProfitCNY !== null ? cny(item.profit.netProfitCNY) : '—',
       pct(item.margin, 1), pct(item.hitRate), (item.name || '').slice(0, 60),
     ])));
     push('');
@@ -679,12 +684,13 @@ export function renderDataReport({ title = '选品', marketplace = 'US', generat
   }
 
   push('## 11 全部候选（' + results.length + ' 个）', '');
-  push(...table(['ASIN', '档位', '结论', '售价', '采购¥', '净利率', '命中率', '否决', '待复核'], results.map((item) => [
+  push(...table(['ASIN', '档位', '结论', '售价', '采购¥', '单件净利¥', '净利率', '命中率', '否决', '待复核'], results.map((item) => [
     item.asin || '—',
     item.tier,
     item.decision ? item.decision.decision : '—',
     money(item.priceUSD),
     item.inputs && item.inputs.purchaseCNY !== null && item.inputs.purchaseCNY !== undefined ? '¥' + Number(item.inputs.purchaseCNY).toFixed(2) : '—',
+    item.profit && item.profit.netProfitCNY !== undefined && item.profit.netProfitCNY !== null ? cny(item.profit.netProfitCNY) : '—',
     pct(item.margin, 1),
     pct(item.hitRate),
     item.vetoes.length ? item.vetoes.map((v) => v.label).join('、') : '—',
@@ -695,7 +701,7 @@ export function renderDataReport({ title = '选品', marketplace = 'US', generat
   const traceRows = results.filter((item) => item.profit);
   if (traceRows.length) {
     push('## 12 净利率计算输入', '');
-    push(...table(['ASIN', '售价', '采购¥', '包装对齐', '件重g', 'FBA费', '广告%', '退货%', '佣金%', '头程费', '其它费', '净利率'], traceRows.map((item) => [
+    push(...table(['ASIN', '售价', '采购¥', '包装对齐', '件重g', 'FBA费', '广告%', '退货%', '佣金%', '头程费', '其它费', '总成本¥', '净利¥', '净利率'], traceRows.map((item) => [
       item.asin || '—',
       money(item.inputs?.priceUSD ?? item.priceUSD),
       item.inputs?.purchaseCNY === null || item.inputs?.purchaseCNY === undefined ? '—' : '¥' + Number(item.inputs.purchaseCNY).toFixed(2),
@@ -703,7 +709,10 @@ export function renderDataReport({ title = '选品', marketplace = 'US', generat
       int(item.inputs?.weightG),
       money(item.profit.fbaFeeUSD) + (item.profit.fbaEstimated ? '（估）' : ''),
       pct(item.inputs?.adPct), pct(item.inputs?.returnPct), pct(item.inputs?.commissionPct),
-      money(item.inputs?.firstMileUSD), money(item.inputs?.otherUSD), pct(item.profit.netMargin, 1),
+      money(item.inputs?.firstMileUSD), money(item.inputs?.otherUSD),
+      item.profit.totalCostCNY === undefined || item.profit.totalCostCNY === null ? '—' : cny(item.profit.totalCostCNY),
+      item.profit.netProfitCNY === undefined || item.profit.netProfitCNY === null ? '—' : cny(item.profit.netProfitCNY),
+      pct(item.profit.netMargin, 1),
     ])));
     push('');
   }

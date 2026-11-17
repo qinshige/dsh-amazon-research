@@ -28,8 +28,8 @@ const closeTo = (actual, expected, tolerance, label) => {
 test('landedCost：按净利率口径拆解全成本（采购 + 头程 + FBA + 佣金 + 广告 + 退货 + 其它）', () => {
   const result = landedCost({ priceCNY: 2.8, weightG: 67, priceUSD: 23.99 });
   assert.ok(result, '应返回测算结果');
-  closeTo(result.purchaseUSD, 2.8 / 7.1, 0.001, '采购$');
-  closeTo(result.firstMileUSD, (67 / 1000) * 35 / 7.1, 0.001, '头程$');
+  closeTo(result.purchaseUSD, 2.8 / 6.7, 0.001, '采购$（按成本汇率 6.7）');
+  closeTo(result.firstMileUSD, (67 / 1000) * 35 / 6.7, 0.001, '头程$（按成本汇率 6.7）');
   closeTo(result.fbaFeeUSD, 3.22, 0.001, 'FBA$（≤4oz 档）');
   closeTo(result.referralUSD, 23.99 * 0.15, 0.001, '佣金$');
   closeTo(result.adUSD, 23.99 * 0.1, 0.001, '广告$');
@@ -47,7 +47,8 @@ test('landedCost：notes 逐项标注「实测值 / 估算值」', () => {
   const result = landedCost({ priceCNY: 2.8, weightG: 67, priceUSD: 23.99 });
   const joined = result.notes.join('\n');
   assert.match(joined, /采购价 ¥2\.80（实测值/);
-  assert.match(joined, /汇率 7\.1 CNY\/USD（估算值/);
+  assert.match(joined, /成本汇率 6\.7 CNY\/USD/);
+  assert.match(joined, /结算汇率 6\.6 CNY\/USD/);
   assert.match(joined, /头程 ¥35\/kg（估算值/);
   assert.match(joined, /FBA 配送费 \$3\.22（估算值/);
   assert.match(joined, /广告 10\.00%（估算值/);
@@ -447,9 +448,9 @@ test('research_unit_cost：缺 subMarkets 与 category 时返回 INVALID_ARGS（
 
 test('maxPurchaseCNYForNetMargin：按 25% 红线倒推采购价上限', () => {
   const result = maxPurchaseCNYForNetMargin({ priceUSD: 23.99, weightG: 67, fbaFeeUSD: 3.22, returnRate: 0.05 });
-  const expectedCNY = (23.99 * (1 - 0.15 - 0.10 - 0.05 - 0.25) - result.firstMileUSD - 3.22 - 0.35) * 7.1;
+  const expectedCNY = (23.99 * (1 - 0.15 - 0.10 - 0.05 - 0.25) - result.firstMileUSD - 3.22 - 0.35) * 6.7;
   closeTo(result.maxPurchaseCNY, expectedCNY, 0.02, '采购价上限（¥）');
-  assert.ok(result.maxPurchaseCNY > 45 && result.maxPurchaseCNY < 55, '售价 23.99 的小件采购上限约 ¥49');
+  assert.ok(result.maxPurchaseCNY > 42 && result.maxPurchaseCNY < 52, '售价 23.99 的小件采购上限约 ¥46（成本汇率 6.7）');
   assert.equal(maxPurchaseCNYForNetMargin({ priceUSD: 5 }), null, '售价撑不起红线时返回 null');
 });
 

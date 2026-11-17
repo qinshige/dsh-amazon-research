@@ -48,7 +48,12 @@ export const LOW_PRICE_BAND = Object.freeze({
 
 /** 默认参数（全部为经验/估算值，按实际替换）。 */
 export const DEFAULT_COST_PARAMS = Object.freeze({
-  fx: 7.1,
+  /** 成本汇率：把人民币成本（1688 采购价等）折成美元时用。 */
+  costFx: 6.7,
+  /** 结算汇率：把美元收入折成人民币结算时用。 */
+  settleFx: 6.6,
+  /** 兼容旧字段：等价于 costFx。 */
+  fx: 6.7,
   firstMilePerKgCNY: 35,
   referralRate: 0.15,
   adRate: 0.1,
@@ -194,7 +199,9 @@ function resolveFulfillment(channel, { givenFeeUSD, weightG, assumedWeightG }) {
  * @param {object} params
  * @param {number} params.priceCNY 1688 采购价（阶梯价已选定，CNY/件）
  * @param {number|null} [params.weightG] 件重（克），用于头程与 FBA 档位
- * @param {number} [params.fx=7.1] 汇率 CNY/USD
+ * @param {number} [params.costFx=6.7] 成本汇率 CNY/USD（人民币成本折美元）
+ * @param {number} [params.settleFx=6.6] 结算汇率 CNY/USD（美元收入折人民币结算）
+ * @param {number} [params.fx=6.7] 兼容旧字段，等价于 costFx
  * @param {number} [params.firstMilePerKgCNY=35] 头程 ¥/kg（含海运 + 贴标摊销）
  * @param {number} [params.referralRate=0.15] 平台佣金
  * @param {number|null} [params.fbaFeeUSD=null] 给定则用（实测值），否则按重量档估算
@@ -216,7 +223,9 @@ export function landedCost(params = {}) {
   if (purchaseCNY === null || purchaseCNY < 0 || sellingUSD === null || !(sellingUSD > 0)) return null;
 
   const def = DEFAULT_COST_PARAMS;
-  const fx = positiveOr(source.fx, def.fx);
+  // 双汇率：成本项用成本汇率折美元；收入/利润回款用结算汇率折人民币。
+  const costFx = positiveOr(source.costFx, positiveOr(source.fx, def.costFx));
+  const settleFx = positiveOr(source.settleFx, def.settleFx);
   const firstMilePerKgCNY = positiveOr(source.firstMilePerKgCNY, channel.firstMilePerKgCNY);
   const referralRate = rateOr(source.referralRate, channel.referralRate);
   const adRate = rateOr(source.adRate, channel.adRate);
@@ -229,7 +238,7 @@ export function landedCost(params = {}) {
   const givenFba = num(source.fbaFeeUSD);
   const useGivenFba = givenFba !== null && givenFba >= 0;
 
-  const purchaseUSD = purchaseCNY / fx;
+  const purchaseUSD = purchaseCNY / costFx;
   // 件重未知时，头程**不能按 0 计**——那会系统性高估净利率（实测：浴巾挂钩重量未取到，
   // 头程按 0 算会让净利率从 -84% 虚高到 +31%）。这里按保守假设 500g（中号标准件档）计，
   // 并在 notes 里标注「件重未取到，头程按 500g 保守假设」。
@@ -240,7 +249,7 @@ export function landedCost(params = {}) {
     weightG: hasWeight ? weightGrams : null,
     assumedWeightG,
   });
-  const firstMileUSD = (assumedWeightG / 1000) * firstMilePerKgCNY / fx;
+  const firstMileUSD = (assumedWeightG / 1000) * firstMilePerKgCNY / costFx;
   const fulfillmentUSD = fba.feeUSD;
   const referralUSD = sellingUSD * referralRate;
   const adUSD = sellingUSD * adRate;
@@ -265,7 +274,7 @@ export function landedCost(params = {}) {
   push(hasWeight
     ? `件重 ${round(weightGrams, 1)} g（${src.weight ?? '实测值'}，1688 详情页商品件重尺）`
     : `件重未取到：头程按 ${round(assumedWeightG, 0)}g 保守假设计（${src.weight ?? '未取到'}），FBA 按小号标准件最低档估算；本行净利率置信度低`);
-  push(`汇率 ${fx} CNY/USD（${src.fx ?? '估算值'}，按当期汇率替换）`);
+  push(`成本汇率 ${costFx} CNY/USD（人民币成本折美元）｜结算汇率 ${settleFx} CNY/USD（美元收入折人民币）`);
   push(`渠道：${channel.label}`);
   if (firstMilePerKgCNY > 0) push(`头程 ¥${firstMilePerKgCNY}/kg（${src.firstMile ?? '估算值'}，含海运 + 贴标 + 操作摊销）`);
   else push('头程：跨境直发渠道，运费并入履约成本，不单算');
@@ -298,6 +307,17 @@ export function landedCost(params = {}) {
     logisticsUSD: round(logisticsUSD, 4),
     logisticsRatio: round(logisticsRatio, 4),
     purchaseRatio: round(purchaseRatio, 4),
+    // 双汇率口径：利润额按结算汇率折人民币（结算汇率与成本汇率不同时，
+    // 成本项已在 costFx 下折美元，净利率会与单汇率口径有系统性差异）。
+    costFx: round(costFx, 4),
+    settleFx: round(settleFx, 4),
+    // 人民币口径利润（结算口径）
+    priceCNY_settle: round(sellingUSD * settleFx, 2),
+    totalCostCNY: round(totalCostUSD * settleFx, 2),
+    netProfitCNY: round(netProfitUSD * settleFx, 2),
+    grossProfitCNY: round(grossProfitUSD * settleFx, 2),
+    purchaseCNY_actual: round(purchaseCNY, 2),
+    costCNY_actual: round(purchaseCNY + (assumedWeightG / 1000) * firstMilePerKgCNY, 2),
     fbaEstimated: fba.estimated,
     fbaTier: fba.tier,
     fbaLabel: fba.label,
@@ -305,7 +325,8 @@ export function landedCost(params = {}) {
     assumedWeightG: hasWeight ? null : round(assumedWeightG, 0),
     weightMissing: !hasWeight,
     params: {
-      fx,
+      costFx,
+      settleFx,
       firstMilePerKgCNY,
       referralRate,
       adRate,
@@ -601,7 +622,8 @@ export function maxPurchaseCNYForNetMargin(input = {}) {
   const price = num(src.priceUSD);
   if (price === null || !(price > 0)) return null;
   const def = DEFAULT_COST_PARAMS;
-  const fx = positiveOr(src.fx, def.fx);
+  // 采购价上限按**成本汇率**折算（采购是人民币成本，与结算汇率无关）
+  const fx = positiveOr(src.costFx, positiveOr(src.fx, def.costFx));
   const firstMilePerKgCNY = positiveOr(src.firstMilePerKgCNY, def.firstMilePerKgCNY);
   const referralRate = rateOr(src.referralRate, def.referralRate);
   const adRate = rateOr(src.adRate, def.adRate);
