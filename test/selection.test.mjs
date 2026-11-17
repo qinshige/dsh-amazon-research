@@ -180,6 +180,7 @@ test('体检落盘：report.md 含四途径、十维、否决、差异化与追�
       ],
       outputRoot: dir,
       title: 'Vases 测试',
+      reportStyle: 'full',
     });
     assert.equal(out.count, 2);
     assert.ok(out.runId);
@@ -464,8 +465,8 @@ test('决策单：安全边际与首批资金可复算', () => {
 test('报告：保守档有附录教练层，进阶没有', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'dsr-profile-'));
   try {
-    const beginner = await screenCandidates({ rows: [baseRow], outputRoot: dir, title: '新手', profile: 'beginner' });
-    const operator = await screenCandidates({ rows: [baseRow], outputRoot: dir, title: '进阶', profile: 'operator' });
+    const beginner = await screenCandidates({ rows: [baseRow], outputRoot: dir, title: '新手', profile: 'beginner', reportStyle: 'full' });
+    const operator = await screenCandidates({ rows: [baseRow], outputRoot: dir, title: '进阶', profile: 'operator', reportStyle: 'full' });
     const beginnerMd = await readFile(join(beginner.dir, 'report.md'), 'utf8');
     const operatorMd = await readFile(join(operator.dir, 'report.md'), 'utf8');
     assert.match(beginnerMd, /## 附录 A · 补充说明/);
@@ -473,6 +474,31 @@ test('报告：保守档有附录教练层，进阶没有', async () => {
     assert.match(operatorMd, /### 1\.1 决策单/);
     assert.equal(beginner.profile, 'beginner');
     assert.equal(operator.profile, 'operator');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('数据版报告（默认）：只有表与数字，不含四途径/教练层/术语/免责声明等叙述', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsr-data-'));
+  try {
+    const out = await screenCandidates({ rows: [baseRow, { ...baseRow, ASIN: 'B0BAD', 变体数: 9 }], outputRoot: dir, title: '数据版' });
+    assert.equal(out.reportStyle, 'data');
+    const md = await readFile(join(out.dir, 'report.md'), 'utf8');
+    // 必须有的数据块
+    for (const block of ['## 1 决策单', '## 2 安全边际', '## 4 分档', '## 5 分段利润', '## 8 数据可信度', '## 10 一票否决', '## 11 全部候选', '## 12 净利率计算输入']) {
+      assert.ok(md.includes(block), '数据版缺少 ' + block);
+    }
+    assert.match(md, /B0TEST/);
+    // 不该出现的叙述性章节
+    for (const prose of ['四途径', '九策略', '教练', '术语', '免责声明', '读法', '附录 A', '今天', '本周']) {
+      assert.ok(!md.includes(prose), '数据版不应出现「' + prose + '」');
+    }
+    // 表格行占比要高：至少 60% 的行是表格行
+    const all = md.split('\n').filter((line) => line.trim());
+    const tableRows = all.filter((line) => line.trim().startsWith('|'));
+    assert.ok(tableRows.length / all.length >= 0.6, '数据版应以表格为主体，实际 ' + tableRows.length + '/' + all.length);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

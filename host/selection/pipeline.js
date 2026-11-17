@@ -12,7 +12,7 @@ import { suggestDifferentiation } from './differentiate.js';
 import { buildDecisionBrief, coachFor, compareChannels } from './brief.js';
 import { decide, evaluateProfileFit, getProfile } from './profiles.js';
 import { analyzeSegments } from './segments.js';
-import { renderSelectionReport, renderSelectionCsv, sensitivity } from './report.js';
+import { renderDataReport, renderSelectionReport, renderSelectionCsv, sensitivity } from './report.js';
 
 /** 最小 RFC4180 CSV 解析（支持引号、逗号、换行、BOM）。 */
 export function parseCsv(text) {
@@ -116,6 +116,7 @@ export async function screenCandidates({
   profile = 'beginner',
   targetMonthlyUnits = null,
   channel = 'amazon-fba',
+  reportStyle = 'data',
 } = {}) {
   const list = Array.isArray(rows) ? rows.filter((row) => row && typeof row === 'object') : [];
   if (list.length === 0) {
@@ -167,7 +168,8 @@ export async function screenCandidates({
   });
 
   const artifactNames = ['manifest.json', 'provenance.json', 'selection-scores.json', 'report.md', 'selection.csv'];
-  const reportMd = renderSelectionReport({
+  const renderReport = reportStyle === 'full' ? renderSelectionReport : renderDataReport;
+  const reportMd = renderReport({
     title,
     marketplace: site,
     generatedAt,
@@ -266,6 +268,7 @@ export async function screenCandidates({
     inputHash,
     profile: prof.id,
     channel,
+    reportStyle,
     brief: batch.results[0]?.brief || null,
   };
 }

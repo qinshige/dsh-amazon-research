@@ -636,6 +636,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
             enum: ['beginner', 'operator', 'factory'],
             description: '卖家画像：beginner 保守档（资金<10万/无供应链，默认）｜operator 进阶｜factory 工厂型。画像决定售价带/重量/变体/认证/季节/利润红线的适配判断，并输出决策单与附录教练层',
           },
+          reportStyle: { type: 'string', enum: ['data', 'full'], description: '报告版式：data（默认，只给表格与数字）｜full（完整版，含四途径/九策略/教练层/术语/免责声明）' },
           targetMonthlyUnits: { type: 'integer', minimum: 10, maximum: 100000, description: '目标月销单数，用于首批回本估算；不传用画像默认（保守档 100 / 进阶 300 / 工厂 500）' },
           outDir: { type: 'string', description: '报告输出根目录；不传用插件配置' },
         },
@@ -757,6 +758,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
             plan,
             profile: asString(args?.profile) || 'beginner',
             channel: asString(args?.channel) || 'amazon-fba',
+            reportStyle: asString(args?.reportStyle) || 'data',
             targetMonthlyUnits: typeof args?.targetMonthlyUnits === 'number' && Number.isFinite(args.targetMonthlyUnits) ? args.targetMonthlyUnits : null,
           });
           return { ...result, action };

@@ -522,6 +522,204 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
   return lines.join('\n');
 }
 
+/**
+ * 数据版报告（默认）：只给表格、数字与判定，不写解释性段落。
+ *
+ * 为什么有两种版式（用户明确要求「我只需要看数据」）：
+ * 完整版适合第一次做某个类目的人（四途径、九策略、教练层、术语、免责声明）；
+ * 对已经知道自己要什么的卖家，那些段落只是干扰。数据版保留全部**可核对的数据**：
+ * 决策单、安全边际、分档、分段利润、渠道对照、否决依据链、净利率输入、待复核；
+ * 去掉的是解释性文字，**不省略任何数字**。
+ */
+export function renderDataReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, source = '手动/采集表', fx = 7.1, runId = '', inputHash = '', profile = null, channel = 'amazon-fba' } = {}) {
+  const results = batch?.results || [];
+  const summary = batch?.summary || { tiers: {}, decisions: {}, commonGaps: [], vetoed: 0, needsReview: [], avgMargin: null, classRisks: [] };
+  const lines = [];
+  const push = (...items) => lines.push(...items);
+  const top = results[0] || null;
+  const brief = top && top.brief ? top.brief : null;
+
+  push('# ' + title + ' ｜ ' + marketplace + ' ｜ ' + channel, '');
+  push('| 生成时间 | 候选数 | 汇率 | 运行 ID | 输入指纹 |', '| --- | --- | --- | --- | --- |');
+  push('| ' + cell(generatedAt || '—') + ' | ' + results.length + ' | 1 USD = ' + fx + ' CNY | ' + cell(runId || '—') + ' | ' + cell(inputHash || '—') + ' |', '');
+  push('> 数据来源：' + cell(source), '');
+
+  if (brief) {
+    push('## 1 决策单', '');
+    const rows = [
+      ['结论', brief.decision],
+      ['资金与能力', brief.profile.label],
+      ['首要候选', top.asin ? top.asin + ' ' + (top.name || '') : '—'],
+      ['致命项', top.vetoes.length ? top.vetoes.map((v) => v.label).join('；') : '无'],
+    ];
+    const fatalFit = brief.fit && brief.fit.fails ? brief.fit.fails : [];
+    if (fatalFit.length) rows.push(['画像不适配', fatalFit.map((f) => f.label + '：' + f.detail).join('；')]);
+    push(...table(['项目', '值'], rows));
+    push('');
+    if (brief.safety) {
+      const sf = brief.safety;
+      const feas = sf.feasible !== false;
+      push('## 2 安全边际（目标净利率 ' + pct(sf.targetMargin, 0) + '）', '');
+      push(...table(['项目', '阈值', '当前'], [
+        ['采购价上限', feas && sf.maxPurchaseCNY > 0 ? cny(sf.maxPurchaseCNY) : '不可达', cny(sf.currentPurchaseCNY)],
+        ['售价下限', money(sf.minPriceUSD), money(sf.currentPriceUSD)],
+        ['广告上限', feas && sf.maxAdRate > 0 ? pct(sf.maxAdRate, 1) : '不可达', '—'],
+        ['退货上限', feas && sf.maxReturnRate > 0 ? pct(sf.maxReturnRate, 1) : '不可达', '—'],
+      ]));
+      push('');
+    }
+    if (brief.batch && brief.batch.available) {
+      push('## 3 首批', '');
+      push(...table(['变体数', '件数', '资金合计', '货款', '头程', '目标月销', '回本月数'], [[
+        String(brief.batch.variantCount), String(brief.batch.units), cny(brief.batch.capitalCNY),
+        cny(brief.batch.goodsCNY), cny(brief.batch.freightCNY), String(brief.batch.targetMonthlyUnits),
+        brief.batch.paybackMonths === null ? '—' : brief.batch.paybackMonths.toFixed(1),
+      ]]));
+      push('');
+    }
+  }
+
+  push('## 4 分档', '');
+  push('| 分档 | ' + TIER_ORDER.join(' | ') + ' | 平均净利率 |', '| --- | ' + TIER_ORDER.map(() => '---').join(' | ') + ' | --- |');
+  push('| 品数 | ' + TIER_ORDER.map((tier) => String(summary.tiers[tier] || 0)).join(' | ') + ' | ' + pct(summary.avgMargin, 1) + ' |', '');
+  if (summary.decisions) {
+    const keys = Object.keys(summary.decisions);
+    push('| 结论 | ' + keys.join(' | ') + ' |', '| --- | ' + keys.map(() => '---').join(' | ') + ' |');
+    push('| 品数 | ' + Object.values(summary.decisions).join(' | ') + ' |', '');
+  }
+
+  if (batch.segmentAnalysis && batch.segmentAnalysis.segments) {
+    const segs = batch.segmentAnalysis.segments.filter((seg) => seg.count > 0);
+    if (segs.length) {
+      push('## 5 分段利润（' + cell(batch.segmentAnalysis.basis) + '）', '');
+      push(...table(
+        ['分段', '品数', '已测算', '均价', '中位价', '均评论', '均变体', '月销均值', '净利率', '中位净利率', '正利润占比', '≥25%占比', '参考毛利率', '判定'],
+        segs.map((seg) => [
+          seg.label, seg.count, seg.pricedCount, money(seg.avgPrice), money(seg.medianPrice),
+          int(seg.avgReviews), seg.avgVariants === null ? '—' : seg.avgVariants.toFixed(1), int(seg.avgUnits),
+          seg.avgMargin === null ? '—' : pct(seg.avgMargin, 1),
+          seg.medianMargin === null ? '—' : pct(seg.medianMargin, 1),
+          seg.positiveRatio === null ? '—' : pct(seg.positiveRatio, 0),
+          seg.goodRatio === null ? '—' : pct(seg.goodRatio, 0),
+          seg.refGrossAvg === null || seg.refGrossAvg === undefined ? '—' : pct(seg.refGrossAvg, 1) + ' (' + (seg.refGrossCount || 0) + '/' + seg.count + ')',
+          seg.verdict,
+        ]),
+      ));
+      push('');
+    }
+  }
+
+  if (brief && brief.channels && brief.channels.length > 1) {
+    push('## 6 渠道对照', '');
+    push(...table(['渠道', '履约成本', '佣金', '广告', '退货', '净利率'], brief.channels.map((row) => [
+      row.label, money(row.fulfillmentUSD) + '（' + row.fulfillmentLabel + '）',
+      pct(row.referralRate, 0), pct(row.adRate, 0), pct(row.returnRate, 0), pct(row.netMargin, 1),
+    ])));
+    push('');
+  }
+
+  const picks = results.filter((item) => item.tier === '一档' || item.tier === '二档');
+  if (picks.length) {
+    push('## 7 优先候选（一档 / 二档）', '');
+    push(...table(['ASIN', '档位', '结论', '售价', '采购¥', '净利率', '命中率', '商品'], picks.map((item) => [
+      item.asin || '—', item.tier, item.decision ? item.decision.decision : '—', money(item.priceUSD),
+      item.inputs && item.inputs.purchaseCNY !== null && item.inputs.purchaseCNY !== undefined ? '¥' + Number(item.inputs.purchaseCNY).toFixed(2) : '—',
+      pct(item.margin, 1), pct(item.hitRate), (item.name || '').slice(0, 60),
+    ])));
+    push('');
+  }
+
+  const confidenceCounts = {};
+  const gaps = {};
+  for (const item of results) {
+    const level = item.dataConfidence ? item.dataConfidence.level : 'unknown';
+    confidenceCounts[level] = (confidenceCounts[level] || 0) + 1;
+    for (const gap of (item.dataConfidence && item.dataConfidence.gaps) || []) gaps[gap] = (gaps[gap] || 0) + 1;
+  }
+  push('## 8 数据可信度', '');
+  push(...table(['可信度', '品数'], [['高', confidenceCounts.high || 0], ['中', confidenceCounts.medium || 0], ['低', confidenceCounts.low || 0]].filter((row) => Number(row[1]) > 0)));
+  push('');
+  const gapRows = Object.entries(gaps).sort((a, b) => b[1] - a[1]);
+  if (gapRows.length) {
+    push('| 缺失项 | 品数 |', '| --- | --- |');
+    for (const [gap, count] of gapRows) push('| ' + cell(gap) + ' | ' + count + ' |');
+    push('');
+  }
+
+  if (summary.classRisks && summary.classRisks.length) {
+    push('## 9 类目级风险', '');
+    push('| # | 风险 |', '| --- | --- |');
+    summary.classRisks.forEach((risk, i) => push('| ' + (i + 1) + ' | ' + cell(risk) + ' |'));
+    push('');
+  }
+
+  const vetoed = results.filter((item) => item.vetoes.length > 0);
+  push('## 10 一票否决（' + vetoed.length + ' 个）', '');
+  if (!vetoed.length) push('无。', '');
+  else {
+    const rows = [];
+    for (const item of vetoed) {
+      for (const veto of item.vetoes) {
+        const ev = veto.evidence || null;
+        const evValue = ev && ev.value !== null && ev.value !== undefined && ev.value !== ''
+          ? String(ev.value) + (ev.unit ? ' ' + ev.unit : '')
+          : '—';
+        rows.push([
+          item.asin || '—',
+          veto.label,
+          evValue,
+          ev && ev.threshold ? ev.threshold : '—',
+          ev && ev.source ? ev.source : '—',
+          ev && ev.confidence ? (CONFIDENCE[ev.confidence] ? CONFIDENCE[ev.confidence].label : ev.confidence) : '—',
+        ]);
+      }
+    }
+    push(...table(['ASIN', '否决项', '依据数值', '阈值', '数据来源', '可信度'], rows));
+    push('');
+  }
+
+  push('## 11 全部候选（' + results.length + ' 个）', '');
+  push(...table(['ASIN', '档位', '结论', '售价', '采购¥', '净利率', '命中率', '否决', '待复核'], results.map((item) => [
+    item.asin || '—',
+    item.tier,
+    item.decision ? item.decision.decision : '—',
+    money(item.priceUSD),
+    item.inputs && item.inputs.purchaseCNY !== null && item.inputs.purchaseCNY !== undefined ? '¥' + Number(item.inputs.purchaseCNY).toFixed(2) : '—',
+    pct(item.margin, 1),
+    pct(item.hitRate),
+    item.vetoes.length ? item.vetoes.map((v) => v.label).join('、') : '—',
+    item.unknown.length ? item.unknown.join('、') : '—',
+  ])));
+  push('');
+
+  const traceRows = results.filter((item) => item.profit);
+  if (traceRows.length) {
+    push('## 12 净利率计算输入', '');
+    push(...table(['ASIN', '售价', '采购¥', '包装对齐', '件重g', 'FBA费', '广告%', '退货%', '佣金%', '头程费', '其它费', '净利率'], traceRows.map((item) => [
+      item.asin || '—',
+      money(item.inputs?.priceUSD ?? item.priceUSD),
+      item.inputs?.purchaseCNY === null || item.inputs?.purchaseCNY === undefined ? '—' : '¥' + Number(item.inputs.purchaseCNY).toFixed(2),
+      item.inputs?.packAligned ? '¥' + Number(item.inputs.unitPriceCNY).toFixed(2) + '/个 × ' + item.inputs.packUnits + ' 件' : '直接给可售单位成本',
+      int(item.inputs?.weightG),
+      money(item.profit.fbaFeeUSD) + (item.profit.fbaEstimated ? '（估）' : ''),
+      pct(item.inputs?.adPct), pct(item.inputs?.returnPct), pct(item.inputs?.commissionPct),
+      money(item.inputs?.firstMileUSD), money(item.inputs?.otherUSD), pct(item.profit.netMargin, 1),
+    ])));
+    push('');
+  }
+
+  if (summary.needsReview.length) {
+    push('## 13 待复核（' + summary.needsReview.length + ' 个）', '');
+    push(...table(['ASIN', '缺什么'], summary.needsReview.map((item) => [
+      item.asin || '—',
+      item.missing.length ? item.missing.join('、') : '可判定 KPI 不足 6 项',
+    ])));
+    push('');
+  }
+
+  return lines.join('\n');
+}
+
 /** 选品明细 CSV（含计算列；列名保持中文，方便直接回填模板）。 */
 export function renderSelectionCsv(batch) {
   const headers = [
