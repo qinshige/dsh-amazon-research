@@ -130,8 +130,8 @@ test('web 取数链路：归一化 + 评分 + 落盘（离线桩）', async () =
   });
 });
 
-test('chrome.js：closeTab 用真正的 close（不是 about:blank 导航）', () => {
-  const src = readFileSync(new URL('../host/web/chrome.js', import.meta.url), 'utf8');
+test('AppleScript 后端：closeTab 用真正的 close（不是 about:blank 导航）', () => {
+  const src = readFileSync(new URL('../host/web/applescript.js', import.meta.url), 'utf8');
   assert.match(src, /verb is "close"/, '必须有关闭标签页的 AppleScript 分支');
   assert.match(src, /close \(item i of tabs of w\)/, '必须真正 close 标签页');
   assert.doesNotMatch(src, /osa\(\['go', 'about:blank', tabId\]\), 30_000\)/, 'closeTab 不能只导航到 about:blank');

@@ -22,7 +22,7 @@ description: 亚马逊选品全流程（四途径 → 九策略 → 十维体检
 | research_product_select（action=screen） | 候选 ASIN 十维体检：达标/警戒/不达标/未知、一票否决、一档/二档/三档/待复核/淘汰、净利率、敏感性、差异化 | 免费，不取数 |
 | research_category_select | 类目大盘与五维评分（给出 nodeIdPath 后再看榜单） | MCP 9~11 次调用 / 网页 3 次 |
 | research_unit_cost | 1688 采价 + 全成本净利测算 | 1688 网页查询次数 |
-| research_page | 操作已登录的 Chrome 页面：click / type / press / scroll / drag（拖滚动条）/ read / scrollAll | 不耗额度，只占用页面 |
+| research_page | 内建安全浏览器能力：snapshot/ref、click/type/press、等待、滚动、读取、导航；CAPTCHA/登录/限流/拒绝/付费墙停止，CDP 可安全截图 | 不耗额度，只占用页面 |
 | research_runs | 读历史报告与产物 | 免费 |
 | mcp_call | 逃生口（关键词/评论/ABA/单品详情等未封装能力） | 消耗额度 |
 

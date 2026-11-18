@@ -159,6 +159,8 @@ export function normalizeCandidate(row = {}) {
     url: str(rawOf(row, 'url')),
     sourceLabel: str(rawOf(row, 'sourceLabel')),
     collectedAt: str(rawOf(row, 'collectedAt')),
+    pageContract: row?.pageContract && typeof row.pageContract === 'object' ? structuredClone(row.pageContract) : null,
+    fieldEvidence: row?.fieldEvidence && typeof row.fieldEvidence === 'object' ? structuredClone(row.fieldEvidence) : {},
     brand: str(rawOf(row, 'brand')),
     categoryPath: str(rawOf(row, 'categoryPath')),
     priceUSD: num(rawOf(row, 'priceUSD')),
@@ -494,7 +496,7 @@ export function evaluateCandidate(row, { fx = 6.7, costFx = null, settleFx = 6.6
       : '命中率 ' + Math.round(hitRate * 100) + '%，净利率 ' + (margin === null ? '未知' : (margin * 100).toFixed(1) + '%');
   }
 
-  const evidenceChain = buildEvidenceChain({ candidate: { checks, vetoes, classRisks } });
+  const evidenceChain = buildEvidenceChain({ candidate: { checks, vetoes, classRisks, fieldEvidence: c.fieldEvidence, pageContract: c.pageContract } });
   return {
     asin: c.asin,
     name: c.name,
@@ -525,6 +527,8 @@ export function evaluateCandidate(row, { fx = 6.7, costFx = null, settleFx = 6.6
       listingUrl: c.url,
       offerUrl: c.offerUrl,
       categoryPath: c.categoryPath,
+      pageContract: c.pageContract,
+      fieldEvidence: c.fieldEvidence,
     },
     inputs: {
       priceUSD: c.priceUSD,

@@ -41,24 +41,29 @@ export function withEvidence(veto, evidence = {}) {
  */
 export function buildEvidenceChain({ candidate }) {
   const checks = new Map((candidate.checks || []).map((item) => [item.key, item]));
+  const fieldEvidence = candidate.fieldEvidence && typeof candidate.fieldEvidence === 'object' ? candidate.fieldEvidence : {};
   const chain = [];
 
   for (const veto of candidate.vetoes || []) {
     const map = {
-      VARIANTS: { key: 'variants', threshold: '≤ 3 个变体', source: 'Amazon 详情页变体数', confidence: 'high' },
-      PATENT: { key: 'patent', threshold: '无专利/商标风险', source: '人工检索结论（需附检索号）', confidence: 'medium' },
-      CATEGORY_DEPTH: { key: 'categoryDepth', threshold: '≥ 3 级细分类目', source: 'Amazon 详情页面包屑', confidence: 'high' },
-      FRAGILE: { key: 'fragile', threshold: '非易碎/抛货', source: '人工判断 + 包装信息', confidence: 'low' },
-      OVERSIZE: { key: 'oversize', threshold: '≤ 2000g', source: 'Amazon 详情页包装重量', confidence: 'high' },
-      MARGIN: { key: 'netMargin', threshold: '> 15%', source: '1688 实测采购价 + 全成本模型', confidence: 'medium' },
-      RETURNS: { key: 'returns', threshold: '≤ 10%', source: '类目/竞品退货率', confidence: 'medium' },
+      VARIANTS: { key: 'variants', fields: ['variants', 'variantCount'], threshold: '≤ 3 个变体', source: 'Amazon 详情页变体数', confidence: 'high' },
+      PATENT: { key: 'patent', fields: ['patent'], threshold: '无专利/商标风险', source: '人工检索结论（需附检索号）', confidence: 'medium' },
+      CATEGORY_DEPTH: { key: 'categoryDepth', fields: ['categoryPath', 'breadcrumbs'], threshold: '≥ 3 级细分类目', source: 'Amazon 详情页面包屑', confidence: 'high' },
+      FRAGILE: { key: 'fragile', fields: ['fragile', 'material'], threshold: '非易碎/抛货', source: '人工判断 + 包装信息', confidence: 'low' },
+      OVERSIZE: { key: 'oversize', fields: ['weightG', 'weight', 'dimensions'], threshold: '≤ 2000g', source: 'Amazon 详情页包装重量', confidence: 'high' },
+      MARGIN: { key: 'netMargin', fields: ['purchaseCNY', 'price', 'priceUSD'], threshold: '> 15%', source: '1688 实测采购价 + 全成本模型', confidence: 'medium' },
+      RETURNS: { key: 'returns', fields: ['returnPct', 'returns'], threshold: '≤ 10%', source: '类目/竞品退货率', confidence: 'medium' },
     }[veto.code];
     const check = map ? checks.get(map.key) : null;
+    const browser = map?.fields?.map((field) => fieldEvidence[field]).find(Boolean) || null;
+    const browserSource = browser?.sourceUrl
+      ? (map.source + '；页面证据 ' + browser.sourceUrl + (browser.capturedAt ? ' @ ' + browser.capturedAt : ''))
+      : null;
     chain.push(withEvidence(veto, {
       value: check ? check.value : null,
       threshold: map ? map.threshold : '',
-      source: map ? map.source : '见对应检查项',
-      confidence: check && check.status === '未知' ? 'unknown' : (map ? map.confidence : 'low'),
+      source: browserSource || (map ? map.source : '见对应检查项'),
+      confidence: check && check.status === '未知' ? 'unknown' : (browser?.confidence === 'direct' ? 'high' : (map ? map.confidence : 'low')),
     }));
   }
 
@@ -75,7 +80,13 @@ export function buildEvidenceChain({ candidate }) {
     },
   }));
 
-  return { vetoes: chain, classRisks, dataConfidence: candidate.dataConfidence || 'unknown' };
+  return {
+    vetoes: chain,
+    classRisks,
+    dataConfidence: candidate.dataConfidence || 'unknown',
+    pageContract: candidate.pageContract || null,
+    fieldEvidence,
+  };
 }
 
 /** 数据可信度总评：看关键字段有没有取到、有没有交叉验证。 */

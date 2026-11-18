@@ -1,5 +1,34 @@
 # dsh-amazon-research
 
+## v0.7.0：内建 dsh-browser 风格能力（安全快照 + 固定后端句柄 + CDP）
+
+`research_page` 在插件内部提供浏览器读取与受控交互；不安装、不调用外部 Lum1104 插件或 Chrome 扩展。Amazon 非沙特与 Trendyol.sa 的业务规则保持不变，高层采集器仍优先使用确定性选择器。
+
+| 能力 | 说明 |
+| --- | --- |
+| `snapshot` | 有界文本快照：标题/URL/正文 + **编号控件清单**（如 `[e12] button "加载更多"`）。password/OTP/PIN/CVV/token 等值与可访问名称均脱敏；误入正文的 CSS/JS 代码块（如 `#root{…}`）会被剔除；`delta=true` 同时返回正文增删分块 |
+| 稳定 `ref` | 页面私有 `WeakMap` 注册表保存编号，不写 `data-dsh-ref`、不污染 DOM；支持 open Shadow DOM 与同源 iframe。CDP 还能只读补采跨域 iframe，编号形如 `f1:e2`，跨域 ref 默认禁止自动点击 |
+| 固定后端句柄 | 标签页 ID 为 `apple:<id>` / `cdp:<id>`，句柄创建后固定驱动，避免 `auto` 状态变化把操作发送到错误后端；强制 CDP 不可达时立即报 `CDP_UNREACHABLE` |
+| 原生交互 | CDP 真实鼠标/键盘输入；回退到页面脚本时返回 `degradedFrom` / `fallbackReason`。`requireNative=true` 可禁止回退，点击只触发一次激活 |
+| 页面等待 | 支持 `waitForSelector`、`waitForUrl`、`waitUntil=dom-settled`，避免仅靠固定 sleep 判断页面完成 |
+| 风险守卫 | 快照识别 CAPTCHA、登录墙、限流、拒绝访问与付费墙；写操作命中后停止，不绕过风控 |
+| 截图 | 仅 CDP；只允许写入插件数据目录的 `screenshots/*.png`，拒绝路径穿越、非 PNG 和覆盖现有文件 |
+| 证据 | 快照返回 URL、标题、时间、后端、方法、置信度与页面风险；Trendyol/1688 结构化结果增加 `pageContract` 与字段级 `fieldEvidence`，证据索引不会冒充截图 |
+| 驱动自检 | `action=backend` 返回驱动、端口、可用性、错误与句柄格式；插件卸载或端口变化会关闭连接池 |
+
+### 两种驱动
+
+- **CDP（推荐增强）**：Chrome 带 `--remote-debugging-port=9222` 启动时自动启用。支持真实输入、截图和跨域 iframe 只读补采，且不需要 Chrome 的「View → Developer → Allow JavaScript from Apple Events」。配置：`{"browser":{"driver":"cdp","cdpPort":9222}}`。
+- **AppleScript（已登录浏览器兜底）**：默认 `auto` 在调试端口不可用时回落；页面内交互会明确标注方法，不支持截图。若配置强制 `cdp`，不会静默回落。
+
+> **Chrome 136+ 限制**：官方 Chrome 会忽略默认用户目录的 `--remote-debugging-port`（安全策略）。启用 CDP 必须同时指定独立 `--user-data-dir`（新目录通常需要重新登录），或使用 Chrome for Testing。端口只监听本机；插件不会改 UA，也不会绕过验证码、登录、限流或付费墙。
+
+### 浏览器回归测试
+
+- 常规：`node --test test/*.test.mjs`（真实浏览器用例默认跳过）。
+- 真实 Chrome/CDP：`DSH_BROWSER_INTEGRATION=1 node --test test/browser-integration.test.mjs`。测试启动本地 fixture HTTP 服务和临时 Chrome profile，验证快照、Shadow DOM、同源/跨域 frame、单次点击、原生输入与安全截图，结束后清理全部临时资源。
+
+
 ## v0.5.2：沙特候选 → 1688同产品寻源 → 核价回填 → 沙特利润
 
 新增独立工具 `research_saudi_source`，不复用Amazon FBA利润模型、不修改美国功能：

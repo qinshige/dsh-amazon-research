@@ -311,6 +311,23 @@ test('否决依据链：每条否决带数值、阈值、来源、可信度', ()
   assert.ok(conf.gaps.length > 0, '缺采购价必须被记为缺口');
 });
 
+test('浏览器字段证据进入否决依据链与 provenance，而不冒充截图', () => {
+  const capturedAt = '2026-01-02T03:04:05.000Z';
+  const candidate = evaluateCandidate({
+    ...baseRow,
+    变体数: 9,
+    pageContract: { sourceUrl: 'https://example.test/item', capturedAt, screenshotCaptured: false },
+    fieldEvidence: {
+      variants: { sourceUrl: 'https://example.test/item', capturedAt, confidence: 'direct', screenshotCaptured: false },
+    },
+  });
+  const veto = candidate.vetoes.find((item) => item.code === 'VARIANTS');
+  assert.match(veto.evidence.source, /https:\/\/example\.test\/item/);
+  assert.equal(candidate.provenance.pageContract.screenshotCaptured, false);
+  assert.equal(candidate.provenance.fieldEvidence.variants.screenshotCaptured, false);
+  assert.equal(candidate.evidenceChain.pageContract.sourceUrl, 'https://example.test/item');
+});
+
 test('实时会话：事件落盘 + 快照可读', async () => {
   const { beginSession, endSession, push, readLiveSnapshot } = await import('../host/live.js');
   const { mkdtemp, rm } = await import('node:fs/promises');

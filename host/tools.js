@@ -190,15 +190,27 @@ function createLegacyTools({ ctx, dataDir, secrets, providers, version }) {
         const targets = ids.filter((id) => known.includes(id));
         if (!targets.length) return err('INVALID_ARGS', '未知数据源: ' + requested, '可选值：sellersprite / sellersprite-web / sorftime / trendyol-web / all');
         const statuses = await Promise.all(targets.map((id) => providers.status(id).catch((error) => ({ id, ok: false, configured: false, lastError: String(error?.message ?? error) }))));
+        // 浏览器驱动状态：只在真正会用到浏览器时查，避免拖慢纯 API 场景。
+        let browser = null;
+        if (requested === 'all' || requested === 'sellersprite-web' || requested === 'trendyol-web') {
+          try {
+            const { browserBackendInfo } = await import('./web/chrome.js');
+            browser = await browserBackendInfo();
+          } catch (error) {
+            browser = { error: String(error?.message ?? error) };
+          }
+        }
         return {
           ok: true,
           version,
           providers: statuses,
+          ...(browser ? { browser } : {}),
           config: {
             marketplace: config.marketplace,
             defaultLimit: config.defaultLimit,
             outputRoot: resolveOutputRoot(config),
             provider: config.provider,
+            browser: config.browser,
           },
         };
       },
@@ -920,16 +932,18 @@ function createLegacyTools({ ctx, dataDir, secrets, providers, version }) {
     {
       name: 'research_page',
       description: [
-        '直接操作你已经登录的 Chrome 页面（点击 / 输入 / 按键 / 滚动 / 拖滚动条 / 读可见文本或表格），用来把「只渲染首屏」的页面数据翻出来。',
+        '直接操作你已经登录的 Chrome 页面：文本快照 → 按编号点击/输入 → 导航/截图，用来把「只渲染首屏」的页面数据翻出来。',
         '调用时机：卖家精灵扩展面板、卖家精灵网页版、Amazon 搜索页、1688 详情页、Trendyol 等需要点击「加载更多」、翻页、选筛选、滚动虚拟列表才能看到全部数据时。',
-        'action：tabs 列出标签页 ｜ state 页面概况（URL/标题/滚动高度/元素数）｜ click 点击（selector 或 text 或 xpath）｜ type 输入文本（可回车）｜ press 按键 ｜ scroll 滚动到指定位置或步进 ｜ drag 拖滚动条（失败自动分步滚动并在 method 里说明）｜ read 读可见文本或表格行 ｜ wait 等元素出现 ｜ scrollAll 反复滚到底并读全。',
-        'target 三选一：tabId（精确）｜url（按 URL 片段匹配已打开的标签页）｜都不给则用第一个标签页。',
-        '纪律：只操作你已登录的页面，不绕过验证码 / 登录 / 付费墙；页面出现验证或人机校验时返回 warning，请人工处理后继续。',
+        '推荐顺序：先 snapshot 拿页面结构与控件编号（ref 形如 e12，跨快照稳定），再用 click/type 的 ref 操作；没有 ref 时才退回 selector / text / xpath。',
+        'action：tabs 列标签页 ｜ state 页面概况 ｜ backend 浏览器驱动状态 ｜ snapshot 文本快照（含编号控件、正文、表单值脱敏；delta=true 只看变化）｜ click ｜ type ｜ press ｜ scroll ｜ drag ｜ read ｜ wait ｜ scrollAll ｜ navigate 导航到 URL ｜ back/forward/reload ｜ screenshot 截图（需 CDP）｜ follow 跟随标签页。',
+        'target：tabId（精确）｜url（按 URL 片段匹配已打开标签页）。写操作必须传精确 tabId，或让 url 只匹配一个标签页；多匹配会拒绝，避免误操作。元素定位：ref ｜ selector ｜ text ｜ xpath，四选一。',
+        '截图需要 Chrome 以 --remote-debugging-port 启动（browser.driver=cdp），且只能写数据目录 screenshots/ 下的新 PNG；未开启时截图返回明确错误，其它动作可走 AppleScript。',
+        '纪律：不绕过验证码、登录、限流、拒绝访问或付费墙；命中风险页时写操作直接停止。跨域 frame 的 fN:eN ref 只读，不自动点击。',
       ].join('\n'),
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['tabs', 'state', 'click', 'type', 'press', 'scroll', 'drag', 'read', 'wait', 'scrollAll'], description: '要执行的动作' },
+          action: { type: 'string', enum: ['tabs', 'state', 'backend', 'snapshot', 'click', 'type', 'press', 'scroll', 'drag', 'read', 'wait', 'scrollAll', 'navigate', 'back', 'forward', 'reload', 'screenshot', 'follow'], description: '要执行的动作' },
           tabId: { type: 'string', description: '标签页 id（tabs 动作返回）；不传则按 url 匹配或取第一个标签页' },
           url: { type: 'string', description: '按 URL 片段匹配已打开的标签页，如 sellersprite.com / amazon.com/s?k=' },
           selector: { type: 'string', description: 'CSS 选择器' },
@@ -942,6 +956,20 @@ function createLegacyTools({ ctx, dataDir, secrets, providers, version }) {
           top: { type: 'number', description: 'scroll 动作：滚到指定 scrollTop' },
           deltaY: { type: 'number', description: 'scroll / drag 动作：相对滚动的像素' },
           toBottom: { type: 'boolean', description: 'drag 动作：是否拖到底（默认 true）' },
+          ref: { type: 'string', description: '快照里的控件编号（如 e12 或 f2:e12），click/type/press 优先用它定位' },
+          contains: { type: 'boolean', description: 'text 定位是否采用包含匹配，默认 true；false 为完全匹配' },
+          clear: { type: 'boolean', description: 'type 动作输入前是否清空，默认 true；false 为追加' },
+          requireNative: { type: 'boolean', description: '要求 CDP 真实输入；CDP 不可用或失败时直接报错，不降级成页面 JS' },
+          waitUntil: { type: 'string', enum: ['none', 'dom-settled'], description: '交互后等待策略；dom-settled 等页面连续 600ms 无 DOM 变化' },
+          waitForSelector: { type: 'string', description: '交互后等待这个 CSS 选择器出现' },
+          waitForUrl: { type: 'string', description: '交互后等待 URL 包含此文本' },
+          delta: { type: 'boolean', description: 'snapshot 动作：只返回控件及正文分块变化' },
+          maxChars: { type: 'integer', minimum: 500, maximum: 200000, description: 'snapshot 正文字符上限，默认 6000' },
+          maxItems: { type: 'integer', minimum: 1, maximum: 1000, description: 'snapshot 控件上限，默认 120' },
+          fullPage: { type: 'boolean', description: 'screenshot 动作：截整页而不是可视区域' },
+          savePath: { type: 'string', description: 'screenshot 动作：数据目录 screenshots/ 下的相对 PNG 路径；拒绝越界和覆盖' },
+          targetUrl: { type: 'string', description: 'navigate 动作：要跳转的 http(s) 地址' },
+          raw: { type: 'boolean', description: 'snapshot 动作：额外返回结构化 view（默认只返回渲染文本，避免重复占上下文）' },
           rows: { type: 'boolean', description: 'read 动作：读表格行而不是整页文本' },
           limit: { type: 'integer', minimum: 1, maximum: 5000, description: 'read 动作返回的最大条数，默认 500' },
           timeout: { type: 'integer', minimum: 1, maximum: 300, description: 'wait 动作的等待秒数，默认 30' },
@@ -953,7 +981,7 @@ function createLegacyTools({ ctx, dataDir, secrets, providers, version }) {
       isConcurrencySafe: () => false,
       async execute(rawArgs) {
         const action = asString(rawArgs?.action);
-        if (!action) return err('INVALID_ARGS', 'action 必填', '可选：tabs / state / click / type / press / scroll / drag / read / wait / scrollAll');
+        if (!action) return err('INVALID_ARGS', 'action 必填', '可选：tabs / state / backend / snapshot / click / type / press / scroll / drag / read / wait / scrollAll / navigate / back / forward / reload / screenshot / follow');
         let page;
         let chrome;
         try {
@@ -962,46 +990,114 @@ function createLegacyTools({ ctx, dataDir, secrets, providers, version }) {
         } catch (error) {
           return err('PAGE_UNAVAILABLE', '页面操作模块不可用：' + String(error?.message ?? error), '需要 macOS + Google Chrome；其它平台无法驱动页面。');
         }
+        if (action === 'backend') {
+          try {
+            const { browserBackendInfo } = await import('./web/chrome.js');
+            return { ok: true, backend: await browserBackendInfo({ force: true }) };
+          } catch (error) {
+            return err('BROWSER_BACKEND_FAILED', String(error?.message ?? error));
+          }
+        }
         let tabs = [];
         try {
           tabs = await chrome.listTabs();
         } catch (error) {
           return err('CHROME_UNREACHABLE', String(error?.message ?? error), '确认 Chrome 正在运行，且系统已允许终端/DSH 控制 Google Chrome。');
         }
-        let tabId = asString(rawArgs?.tabId);
-        if (!tabId) {
-          const urlPart = asString(rawArgs?.url);
-          const hit = urlPart ? tabs.find((t) => String(t.url || '').includes(urlPart)) : null;
-          tabId = hit ? hit.id : (tabs[0] ? tabs[0].id : '');
-        }
         if (action === 'tabs') {
-          return { ok: true, count: tabs.length, tabs: tabs.map((t) => ({ id: t.id, url: t.url })) };
+          return { ok: true, count: tabs.length, tabs: tabs.map((t) => ({ id: t.id, url: t.url, title: t.title || '' })) };
         }
+        const explicitTabId = asString(rawArgs?.tabId);
+        const urlPart = asString(rawArgs?.url);
+        const urlMatches = !explicitTabId && urlPart ? tabs.filter((t) => String(t.url || '').includes(urlPart)) : [];
+        if (!explicitTabId && urlMatches.length > 1) {
+          return err('AMBIGUOUS_TAB', 'URL 片段匹配到多个标签页，请传 tabs 返回的精确 tabId', urlMatches.map((t) => String(t.id) + ' ' + String(t.url || '')).join('\n'));
+        }
+        const writeActions = new Set(['click', 'type', 'press', 'scroll', 'drag', 'scrollAll', 'navigate', 'back', 'forward', 'reload', 'screenshot', 'follow']);
+        if (writeActions.has(action) && !explicitTabId && urlMatches.length !== 1) {
+          return err('TAB_REQUIRED', action + ' 是页面写操作，必须传精确 tabId，或传只能匹配一个标签页的 url 片段', '先调用 action=tabs 或 snapshot 确认目标页，避免操作错误标签页。');
+        }
+        const tabId = explicitTabId || (urlMatches[0]?.id ?? tabs[0]?.id ?? '');
         if (!tabId) return err('NO_TAB', '没有可操作的标签页', '先在 Chrome 里打开目标页面（或在参数里给 url 片段）。');
-        const current = tabs.find((t) => t.id === tabId);
+        const current = tabs.find((t) => String(t.id) === String(tabId));
+        if (!current) return err('NO_TAB', '找不到指定标签页：' + tabId, '标签页可能已关闭或浏览器后端已变化，请重新调用 action=tabs。');
         if (current && !/^https?:/i.test(String(current.url || ''))) {
           return err('BAD_TAB', '目标标签页不是 http(s) 页面：' + String(current.url || ''), '先导航到目标页面再操作。');
         }
         const target = {
+          ref: asString(rawArgs?.ref) || null,
           selector: asString(rawArgs?.selector) || null,
           text: asString(rawArgs?.text) || null,
           xpath: asString(rawArgs?.xpath) || null,
           index: Number.isFinite(Number(rawArgs?.index)) ? Number(rawArgs.index) : 0,
           contains: rawArgs?.contains !== false,
         };
+        let caps;
         try {
+          caps = await import('./web/page-capabilities.js');
+        } catch (error) {
+          return err('PAGE_UNAVAILABLE', '页面能力模块不可用：' + String(error?.message ?? error));
+        }
+        try {
+          const interactionOptions = {
+            requireNative: rawArgs?.requireNative === true,
+            waitUntil: rawArgs?.waitUntil === 'dom-settled' ? 'dom-settled' : 'none',
+            waitForSelector: asString(rawArgs?.waitForSelector) || null,
+            waitForUrl: asString(rawArgs?.waitForUrl) || null,
+            timeout: Number.isFinite(Number(rawArgs?.timeout)) ? Number(rawArgs.timeout) : 30,
+          };
           if (action === 'state') return { ok: true, tabId, state: await page.pageState(tabId) };
-          if (action === 'click') return { ok: true, tabId, ...(await page.click(tabId, target)) };
-          if (action === 'type') return { ok: true, tabId, ...(await page.type(tabId, target, String(rawArgs?.value ?? ''), { enter: rawArgs?.enter === true })) };
-          if (action === 'press') return { ok: true, tabId, ...(await page.press(tabId, asString(rawArgs?.key) || 'Enter', target.selector || null)) };
+          if (action === 'snapshot') {
+            const result = await caps.snapshot(tabId, {
+              delta: rawArgs?.delta === true,
+              maxChars: Number.isFinite(Number(rawArgs?.maxChars)) ? Number(rawArgs.maxChars) : undefined,
+              maxItems: Number.isFinite(Number(rawArgs?.maxItems)) ? Number(rawArgs.maxItems) : undefined,
+            });
+            const payload = {
+              ok: true,
+              tabId,
+              text: result.text,
+              evidence: result.evidence,
+              pageFlags: result.view.pageFlags || {},
+              stats: {
+                items: result.view.items.length,
+                changed: result.view.changed.length,
+                removed: result.view.removed.length,
+                textAdded: result.view.textDelta?.added?.length || 0,
+                textRemoved: result.view.textDelta?.removed?.length || 0,
+                inaccessibleFrames: result.view.inaccessibleFrames?.length || 0,
+                truncated: result.view.truncated,
+              },
+            };
+            if (rawArgs?.raw === true) payload.view = result.view;
+            return payload;
+          }
+          if (action === 'navigate') {
+            const url = asString(rawArgs?.targetUrl) || asString(rawArgs?.url);
+            if (!url) return err('INVALID_ARGS', 'navigate 需要 targetUrl（http/https）');
+            return { ok: true, tabId, ...(await caps.navigate(tabId, url, interactionOptions)) };
+          }
+          if (action === 'back' || action === 'forward' || action === 'reload') return { ok: true, tabId, ...(await caps.history(tabId, action, interactionOptions)) };
+          if (action === 'screenshot') return { ok: true, tabId, ...(await caps.screenshot(tabId, { fullPage: rawArgs?.fullPage === true, savePath: asString(rawArgs?.savePath) || null })) };
+          if (action === 'follow') return { ok: true, ...(await caps.follow(tabId)) };
+          if (action === 'click') return { ok: true, tabId, ...(await caps.click(tabId, target, interactionOptions)) };
+          if (action === 'type') return { ok: true, tabId, ...(await caps.type(tabId, target, String(rawArgs?.value ?? ''), { ...interactionOptions, enter: rawArgs?.enter === true, clear: rawArgs?.clear !== false })) };
+          if (action === 'press') return { ok: true, tabId, ...(await caps.press(tabId, asString(rawArgs?.key) || 'Enter', target.ref || target.selector || target.text || target.xpath ? target : null, interactionOptions)) };
           if (action === 'scroll') {
+            const deltaY = Number.isFinite(Number(rawArgs?.deltaY)) ? Number(rawArgs.deltaY) : null;
+            if (!target.selector && deltaY !== null && !Number.isFinite(Number(rawArgs?.top))) {
+              // caps.scrollPage 内部已做页面风险守卫。
+              return { ok: true, tabId, ...(await caps.scrollPage(tabId, deltaY, interactionOptions)) };
+            }
+            await caps.assertPageSafe(tabId);
             return { ok: true, tabId, ...(await page.scroll(tabId, {
               selector: target.selector,
               top: Number.isFinite(Number(rawArgs?.top)) ? Number(rawArgs.top) : null,
-              deltaY: Number.isFinite(Number(rawArgs?.deltaY)) ? Number(rawArgs.deltaY) : null,
+              deltaY,
             })) };
           }
           if (action === 'drag') {
+            await caps.assertPageSafe(tabId);
             return { ok: true, tabId, ...(await page.dragScroll(tabId, {
               selector: target.selector,
               toBottom: rawArgs?.toBottom !== false,
@@ -1015,8 +1111,8 @@ function createLegacyTools({ ctx, dataDir, secrets, providers, version }) {
               limit: Number.isFinite(Number(rawArgs?.limit)) ? Number(rawArgs.limit) : 500,
             });
             const joined = Array.isArray(result?.data) ? JSON.stringify(result.data) : '';
-            const warning = /验证码|人机验证|滑动验证|captcha|verify you are human|access denied/i.test(joined)
-              ? '页面出现验证码/人机校验：请人工处理后重试，插件不绕过。'
+            const warning = /验证码|人机验证|滑动验证|captcha|verify you are human|access denied|forbidden|too many requests|rate limit|开通会员|付费后查看|subscribe to continue/i.test(joined)
+              ? '页面出现验证码、限流、拒绝访问或付费墙：请人工处理后重试，插件不绕过。'
               : null;
             return warning ? { ok: true, tabId, warning, ...result } : { ok: true, tabId, ...result };
           }
@@ -1025,13 +1121,14 @@ function createLegacyTools({ ctx, dataDir, secrets, providers, version }) {
             return { ok: true, tabId, found };
           }
           if (action === 'scrollAll') {
+            await caps.assertPageSafe(tabId);
             const result = await page.scrollUntilStable(tabId, {
               selector: target.selector,
               step: Number.isFinite(Number(rawArgs?.deltaY)) ? Number(rawArgs.deltaY) : 600,
             });
             return { ok: true, tabId, ...result };
           }
-          return err('INVALID_ARGS', '未知 action: ' + action, '可选：tabs / state / click / type / press / scroll / drag / read / wait / scrollAll');
+          return err('INVALID_ARGS', '未知 action: ' + action, '可选：tabs / state / backend / snapshot / click / type / press / scroll / drag / read / wait / scrollAll / navigate / back / forward / reload / screenshot / follow');
         } catch (error) {
           const code = typeof error?.code === 'string' ? error.code : 'PAGE_ACTION_FAILED';
           return err(code, String(error?.message ?? error));

@@ -19,8 +19,8 @@
  */
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
 import { openTab, runJs, runJson, waitFor, closeTab } from '../web/chrome.js';
+import { attachBrowserEvidence } from '../evidence.js';
 
 export const SOURCE_SEARCH = '1688:搜索页';
 export const SOURCE_DETAIL = '1688:详情页';
@@ -663,6 +663,17 @@ async function runSnippet(tabId, name) {
   return raw;
 }
 
+/** 确定性选择器失效时的只读诊断；不使用快照编号自由点击。 */
+async function pageDiagnostic(tabId, reason) {
+  try {
+    const { snapshot } = await import('../web/page-capabilities.js');
+    const result = await snapshot(tabId, { maxChars: 1200, maxItems: 40 });
+    return { reason, evidence: result.evidence, pageFlags: result.view?.pageFlags || {}, inaccessibleFrames: result.view?.inaccessibleFrames || [], text: String(result.text || '').slice(0, 2000) };
+  } catch (error) {
+    return { reason, error: String(error?.message ?? error).slice(0, 500) };
+  }
+}
+
 /**
  * 关键词 → 1688 搜索页 URL。
  * 1688 的 query 参数按 GBK 解码，UTF-8 关键词必须显式带 charset=utf8，否则页面标题乱码。
@@ -676,46 +687,13 @@ export function encodeKeyword(keyword) {
   return encodeURIComponent(String(keyword || ''));
 }
 
-/** 真关标签页（chrome.js 的 closeTab 只是跳到 about:blank，这里再补一次真关） */
-function closeTabHard(tabId) {
-  const script = `on run argv
-  set tid to item 1 of argv
-  tell application "Google Chrome"
-    repeat with w in windows
-      set ts to tabs of w
-      repeat with t in ts
-        if ((id of t) as string) is tid then
-          if (count of ts) is 1 then
-            make new tab at end of tabs of w with properties {URL:"about:blank"}
-          end if
-          close t
-          return "closed"
-        end if
-      end repeat
-    end repeat
-  end tell
-  return "not found"
-end run`;
-  return new Promise((resolve) => {
-    const child = spawn('osascript', ['-', tabId], { stdio: ['pipe', 'pipe', 'ignore'] });
-    let out = '';
-    child.stdout.on('data', (c) => {
-      out += c;
-    });
-    child.on('error', () => resolve(false));
-    child.on('close', () => resolve(out.trim() === 'closed'));
-    child.stdin.end(script);
-  });
-}
-
-/** 释放标签页：先 chrome.js 的 closeTab（跳空白页），再真关 */
+/** 释放标签页。chrome.js 会依据 namespaced 句柄调用正确后端并真正关闭。 */
 async function releaseTab(tabId) {
   try {
     await closeTab(tabId);
   } catch {
-    /* ignore */
+    /* 清理失败不覆盖主要采集结果 */
   }
-  await closeTabHard(tabId);
 }
 
 /** 登录墙 / 验证码守卫：命中即抛错，不绕过 */
@@ -764,16 +742,20 @@ export async function searchOffers({ keyword, limit = 20, log = () => {}, stopOn
     await assertNoWall(tabId, '1688 搜索页', stopOnWall);
     const data = await runSnippet(tabId, 'search-cards.js');
     const items = Array.isArray(data && data.items) ? data.items : [];
+    let diagnostic = null;
     if (!items.length) {
-      // 0 条卡片多半是被拦截了（验证码页 body 只有一百多字），复查一次守卫再决定
+      // 0 条卡片多半是被拦截了（验证码页 body 只有一百多字），复查一次守卫再决定。
+      // 守卫仍为 OK 时只做快照诊断，不让快照编号驱动自由点击。
       await assertNoWall(tabId, '1688 搜索页（未抓到卡片）');
+      diagnostic = await pageDiagnostic(tabId, 'deterministic_search_selectors_empty');
     }
     log('搜索页卡片 ' + items.length + ' 条（' + keyword + '）');
 
     const rows = [];
     for (const item of items) {
       const parsed = parseCardText(item.cardText);
-      rows.push({
+      const capturedAt = new Date().toISOString();
+      rows.push(attachBrowserEvidence({
         offerId: item.offerId,
         title: parsed.title || item.titleAttr || '',
         url: item.url,
@@ -784,7 +766,15 @@ export async function searchOffers({ keyword, limit = 20, log = () => {}, stopOn
         location: parsed.location,
         monthlySales: parsed.monthlySales,
         badges: parsed.badges,
-      });
+      }, {
+        sourceUrl: url, source: SOURCE_SEARCH, capturedAt,
+        expectedOrigin: 'https://s.1688.com',
+        locators: {
+          offerId: 'offer-card detail href', title: 'offer-card text/title', priceCNY: 'offer-card price text',
+          moqText: 'offer-card quantity text', supplier: 'offer-card supplier text', monthlySales: 'offer-card sales text',
+        },
+        confidence: 'search-card',
+      }));
       if (rows.length >= limit) break;
     }
     return {
@@ -793,6 +783,7 @@ export async function searchOffers({ keyword, limit = 20, log = () => {}, stopOn
       keyword: keyword,
       fetchedAt: new Date().toISOString(),
       source: SOURCE_SEARCH,
+      diagnostic,
     };
   } finally {
     // 复用标签页：**不要在这里关**。
@@ -1034,7 +1025,8 @@ export async function fetchOfferDetail({ url, log = () => {}, stopOnWall = false
     }
     if (promos.length) notes.push('页面另标注' + promos.join('/'));
 
-    return {
+    const capturedAt = new Date().toISOString();
+    const record = {
       offerId: offerId,
       title: title,
       url: cleanUrl,
@@ -1063,9 +1055,21 @@ export async function fetchOfferDetail({ url, log = () => {}, stopOnWall = false
       onePieceDropshipText: onePieceDropshipText,
       monthlySales: monthlySales,
       flags: data.flags || [],
-      fetchedAt: new Date().toISOString(),
+      fetchedAt: capturedAt,
       source: SOURCE_DETAIL,
     };
+    if (!record.title || !record.priceTiers.length) record.diagnostic = await pageDiagnostic(tabId, 'deterministic_detail_fields_missing');
+    return attachBrowserEvidence(record, {
+      sourceUrl: cleanUrl, source: SOURCE_DETAIL, capturedAt,
+      expectedOrigin: 'https://detail.1688.com',
+      locators: {
+        title: 'document title / product heading candidates', priceTiers: 'structured price components',
+        moq: 'price tiers or detail body MOQ text', material: 'product attributes table',
+        weightG: 'package table or product attributes', packDimsCm: 'package table',
+        supplier: 'detail body supplier heading', skuList: 'SKU selector text', onePieceDropship: 'dropship table/action area',
+      },
+      confidence: 'detail-page',
+    });
   } finally {
     if (!stopOnWall) await releaseTab(tabId);
   }

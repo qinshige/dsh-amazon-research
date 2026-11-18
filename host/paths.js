@@ -30,7 +30,7 @@ export function isHostInternalPath(input) {
 
 /** 读取 dataDir/config.json（不存在时返回默认值） */
 export async function readConfig(dataDir) {
-  const defaults = { platform: 'amazon', marketplace: 'US', defaultLimit: 50, outputRoot: '', provider: 'sellersprite', unitCost: null, cacheTtlHours: 24 };
+  const defaults = { platform: 'amazon', marketplace: 'US', defaultLimit: 50, outputRoot: '', provider: 'sellersprite', unitCost: null, cacheTtlHours: 24, browser: { driver: 'auto', cdpPort: 9222 } };
   try {
     const raw = await readFile(join(dataDir, 'config.json'), 'utf8');
     const parsed = JSON.parse(raw);
@@ -64,7 +64,20 @@ export async function writeConfig(dataDir, patch) {
   if (!site) invalid('该平台不支持此站点；沙特只支持 Trendyol.sa');
   const provider = Object.hasOwn(changes, 'provider') ? changes.provider.trim() : changedPlatform ? platform.providers[0] : current.provider;
   if (!providerSupportsPlatform(provider, platform.id)) invalid('数据源不支持所选平台');
-  const next = { ...current, ...changes, platform: platform.id, marketplace: site, provider };
+  let browser = current.browser && typeof current.browser === 'object' ? { ...current.browser } : { driver: 'auto', cdpPort: 9222 };
+  if (Object.hasOwn(changes, 'browser')) {
+    const incoming = changes.browser;
+    if (incoming !== null && typeof incoming === 'object') {
+      if (incoming.driver !== undefined && !['auto', 'applescript', 'cdp'].includes(String(incoming.driver))) invalid('browser.driver 只能是 auto / applescript / cdp');
+      if (incoming.cdpPort !== undefined) {
+        const port = Number(incoming.cdpPort);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) invalid('browser.cdpPort 必须是 1-65535 的整数');
+        browser.cdpPort = port;
+      }
+      if (incoming.driver !== undefined) browser.driver = String(incoming.driver);
+    }
+  }
+  const next = { ...current, ...changes, platform: platform.id, marketplace: site, provider, browser };
   await mkdir(dataDir, { recursive: true });
   const tmp = join(dataDir, '.config.json.tmp');
   await writeFile(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');

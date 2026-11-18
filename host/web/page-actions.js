@@ -32,9 +32,13 @@ function numLit(value, fallback) {
   return Number.isFinite(n) ? String(n) : String(fallback);
 }
 
-/** 找元素的最小公共前置代码（选择器 / 文本 / XPath 三选一）。 */
-function resolveExpr({ selector, text, xpath, index = 0, contains = true }) {
+/** 找元素的最小公共前置代码（ref / 选择器 / 文本 / XPath 四选一）。 */
+function resolveExpr({ selector, text, xpath, ref, index = 0, contains = true }) {
   const idx = numLit(index, 0);
+  if (ref) {
+    const safe = String(ref).replace(/[^A-Za-z0-9:_-]/g, '');
+    return 'var __reg = window.__dshRefRegistry; var el = __reg && typeof __reg.resolve === "function" ? __reg.resolve(' + lit(safe) + ') : null;';
+  }
   if (selector) {
     return 'var __els = document.querySelectorAll(' + lit(selector) + '); var el = __els[' + idx + '] || null;';
   }
@@ -76,9 +80,39 @@ export function clickSnippet(target) {
     '  el.dispatchEvent(new MouseEvent("mousedown", base));',
     '  if (P) el.dispatchEvent(new P("pointerup", Object.assign({}, base, {buttons:0})));',
     '  el.dispatchEvent(new MouseEvent("mouseup", Object.assign({}, base, {buttons:0})));',
-    '  el.dispatchEvent(new MouseEvent("click", Object.assign({}, base, {buttons:0})));',
-    '  if (typeof el.click === "function") { try { el.click(); } catch(e) {} }',
+    '  try {',
+    '    if (typeof el.click === "function") el.click();',
+    '    else el.dispatchEvent(new MouseEvent("click", Object.assign({}, base, {buttons:0})));',
+    '  } catch(e) { return JSON.stringify({ok:false, reason:"CLICK_FAILED", message:String(e && e.message || e)}); }',
     '  return JSON.stringify({ok:true, tag:el.tagName, text:(el.innerText||"").trim().slice(0,40), x:x, y:y});',
+    '})()'
+  ].join('\n');
+}
+
+/** 页面内：把元素滚到视口中央并返回其中心坐标（CDP 真实点击用）。 */
+export function pointSnippet(target) {
+  return [
+    '(function(){',
+    '  ' + resolveExpr(target),
+    '  if (!el) return JSON.stringify({ok:false, reason:"NOEL"});',
+    '  var __cl = el.closest ? el.closest("a,button,[role=\\"button\\"],label,input[type=\\"submit\\"],input[type=\\"checkbox\\"]") : null;',
+    '  if (__cl) el = __cl;',
+    '  try { el.scrollIntoView({block:"center", inline:"center"}); } catch(e) {}',
+    '  var r = el.getBoundingClientRect();',
+    '  return JSON.stringify({ok:true, x:r.left + r.width / 2, y:r.top + r.height / 2, width:r.width, height:r.height});',
+    '})()'
+  ].join('\n');
+}
+
+/** 页面内：聚焦输入框并清空（CDP 真实键入前用）。 */
+export function focusSnippet(target, { clear = true } = {}) {
+  return [
+    '(function(){',
+    '  ' + resolveExpr(target),
+    '  if (!el) return JSON.stringify({ok:false, reason:"NOEL"});',
+    '  if (typeof el.focus === "function") el.focus();',
+    '  if (' + (clear ? 'true' : 'false') + ' && typeof el.select === "function") { try { el.select(); } catch(e) {} }',
+    '  return JSON.stringify({ok:true, tag:el.tagName});',
     '})()'
   ].join('\n');
 }
@@ -108,7 +142,8 @@ export function typeSnippet(target, text, { enter = false, clear = true } = {}) 
     '  el.focus();',
     '  var proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;',
     '  var desc = Object.getOwnPropertyDescriptor(proto, "value");',
-    '  if (desc && desc.set) desc.set.call(el, ' + lit(clear ? text : '') + '); else el.value = ' + lit(text) + ';',
+    '  var nextValue = ' + (clear ? lit(text) : '(String(el.value || "") + ' + lit(text) + ')') + ';',
+    '  if (desc && desc.set) desc.set.call(el, nextValue); else el.value = nextValue;',
     '  el.dispatchEvent(new Event("input", {bubbles:true}));',
     '  el.dispatchEvent(new Event("change", {bubbles:true}));',
     ...(enter ? [
@@ -130,7 +165,7 @@ export function typeSnippet(target, text, { enter = false, clear = true } = {}) 
 export function keySnippet(key, target = {}) {
   return [
     '(function(){',
-    '  ' + (target && (target.selector || target.text || target.xpath) ? resolveExpr(target) : 'var el = document.activeElement || document.body;'),
+    '  ' + (target && (target.selector || target.text || target.xpath || target.ref) ? resolveExpr(target) : 'var el = document.activeElement || document.body;'),
     '  if (!el) el = document.body;',
     '  var code = ' + lit(key) + ';',
     '  ["keydown","keypress","keyup"].forEach(function(name){',

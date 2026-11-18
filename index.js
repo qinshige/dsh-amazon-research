@@ -4,7 +4,7 @@
  * 能力：
  *   1. 8 个模型工具：research_provider_status / research_category_select /
  *      research_product_select（四途径 + 九策略 + 十维 + 差异化）/ research_unit_cost / research_runs /
- *      research_page（点击/滚动/拖滚动条等页面操作）/ mcp_call / research_saudi_source；
+ *      research_page（文本快照 + 编号点击 + 导航/截图，AppleScript 或 CDP 驱动）/ mcp_call / research_saudi_source；
  *   2. 3 个内嵌技能：amazon-category-selection / amazon-product-selection / trendyol-saudi-product-selection；
  *   3. 侧栏「选品研究」面板 + 设置页的 HTTP API（host/routes.js）；
  *   4. 数据落盘：$DSH_HOME/amazon-research/（密钥、配置、缓存、运行目录）。
@@ -21,9 +21,10 @@ import { Secrets } from './host/credentials.js';
 import { Providers } from './host/providers.js';
 import { createTools } from './host/tools.js';
 import { registerRoutes } from './host/routes.js';
+import { resetBrowserCache } from './host/web/chrome.js';
 
 export const name = 'dsh-amazon-research';
-export const version = '0.5.2';
+export const version = '0.7.0';
 
 /** 工具是硬依赖；缺了它插件没有意义。 */
 export const inject = ['tools'];
@@ -55,6 +56,8 @@ const GUIDANCE_TEXT = [
   '仅通过门槛后BB人工有证据评分30/30/15/15/10，总分100；70以上样品，60–69观察，60以下淘汰；LD单列不排名。',
   'research_product_select(action=screen,candidates=[按plan模板填数据])生成最终对标品.md、淘汰候选.md、利润测算.xlsx、evidence索引。证据索引不代表截图已采集；缺失来源/日期/费用必须如实标记。',
   '样品2–3件，首批20–30件；1000展示、50–100有效点击、20–30单为内部测试观察阈值，每7–14天竞品快照。未真实满足扩货条件不得推荐扩货。',
+  '读页面用 research_page：先 snapshot 拿编号控件（ref 如 e12，跨快照稳定），再 click/type 传 ref；长页面用 delta=true。navigate/back/forward/reload 做导航，screenshot 只在 CDP 驱动下可用。',
+  '浏览器驱动默认 auto：Chrome 开了 --remote-debugging-port 就走 CDP（真实输入、可截图），否则回落 AppleScript（需「允许 Apple Events 执行 JavaScript」）。action=backend 可查看当前驱动与端口，不绕过验证码/登录/付费墙。',
   '1688/Alibaba只用于供应链，Google/TikTok/Instagram仅解释需求，其他国家Trendyol只辅助。不得凭记忆补商品数字或伪造证据。',
 ].join('\n');
 
@@ -167,6 +170,8 @@ export function apply(ctx, config = {}) {
           /* 已注销 */
         }
       }
+      // 关闭 CDP WebSocket，避免插件重载后旧连接和 pending 请求继续存活。
+      resetBrowserCache({ closeConnections: true });
     };
   }, 'dsh-amazon-research: tools');
 

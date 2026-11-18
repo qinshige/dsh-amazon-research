@@ -2,6 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import { listTabs, openTab, runJs, runJson, waitFor, closeTab } from './chrome.js';
 import { requireTrendyolCaptureSite } from '../platforms/trendyol-sites.js';
+import { attachBrowserEvidence } from '../evidence.js';
 import { parseBadges, parseCardText, parseCategoryRank, parseFavoriteRank, parseBestSellerRank,
   parsePriceTRY, parsePriceSAR, parseSaudiRatingCount, parseProductId, parseRating, parseReviewCount, formatBreadcrumb } from './trendyol-parse.js';
 const PAGE_DELAY_MS = 3000;
@@ -13,6 +14,15 @@ async function snippet(name, site) {
     [site.value, site.origin, site.currency].map(JSON.stringify).join(',') + ')';
 }
 async function runSnippet(tabId, name, site) { return runJson(tabId, await snippet(name, site)); }
+async function pageDiagnostic(tabId, reason) {
+  try {
+    const { snapshot } = await import('./page-capabilities.js');
+    const result = await snapshot(tabId, { maxChars: 1200, maxItems: 40 });
+    return { reason, evidence: result.evidence, pageFlags: result.view?.pageFlags || {}, inaccessibleFrames: result.view?.inaccessibleFrames || [], text: String(result.text || '').slice(0, 2000) };
+  } catch (error) {
+    return { reason, error: String(error?.message ?? error).slice(0, 500) };
+  }
+}
 const fail = (code, message) => Object.assign(new Error(message), { code });
 export function validatePageGuard(guard, site) {
   if (!guard || typeof guard !== 'object') throw fail('SESSION_NOT_READY', 'Trendyol 页面状态未取到');
@@ -72,7 +82,7 @@ export async function searchProducts({ keyword, marketplace = 'TR', pages = 2, l
   if (!kw) throw fail('INVALID_ARGS', '缺少搜索关键词');
   if (!Number.isInteger(pages) || pages < 1 || pages > 5 || !Number.isInteger(limit) || limit < 10 || limit > 100) throw fail('INVALID_ARGS', 'pages 必须为1-5、limit 为10-100的整数');
   await ensureSession({ marketplace:site.value, log });
-  const rows = [], seen = new Set(), sourceUrls = [];
+  const rows = [], seen = new Set(), sourceUrls = [], diagnostics = [];
   let pagesFetched = 0;
   for (let page = 1; page <= pages; page++) {
     const url = new URL(site.searchPath, site.origin);
@@ -88,18 +98,33 @@ export async function searchProducts({ keyword, marketplace = 'TR', pages = 2, l
       if (guard.noResults) break;
       const data = await runSnippet(tabId, 'trendyol-search-cards.js', site);
       const items = Array.isArray(data?.items) ? data.items : [];
+      if (!items.length && !guard.noResults) diagnostics.push(await pageDiagnostic(tabId, 'deterministic_search_selectors_empty'));
       let added = 0;
       for (const raw of items) {
         const card = toProductCard(raw, site.value);
         if (!card.productId || !card.url || seen.has(card.productId)) continue;
-        seen.add(card.productId); rows.push(card); added++;
+        const capturedAt = new Date().toISOString();
+        const evidenced = attachBrowserEvidence(card, {
+          sourceUrl: guard.url,
+          source: 'trendyol:搜索页',
+          capturedAt,
+          expectedOrigin: site.origin,
+          expectedMarketplace: site.value,
+          expectedCurrency: site.currency,
+          locators: {
+            price: 'product-card price selectors', rating: 'product-card rating selectors',
+            ratingCount: 'product-card rating-count selectors', reviewCount: 'product-card review-count selectors',
+            productId: 'product-card href/data-id', url: 'product-card href',
+          },
+        });
+        seen.add(card.productId); rows.push(evidenced); added++;
       }
       log('搜索第 ' + page + ' 页：' + items.length + ' 张卡片，新增 ' + added + ' 个商品');
       if (!added || rows.length >= limit) break;
     } finally { await closeTab(tabId); }
     if (page < pages) await pause(PAGE_DELAY_MS);
   }
-  return { rows:rows.slice(0,limit), sourceUrls, count:Math.min(rows.length,limit), keyword:kw, pagesFetched,
+  return { rows:rows.slice(0,limit), sourceUrls, diagnostics, count:Math.min(rows.length,limit), keyword:kw, pagesFetched,
     marketplace:site.value, currency:site.currency, fetchedAt:new Date().toISOString(), source:'trendyol:搜索页' };
 }
 export async function fetchProductDetail({ url, marketplace = 'TR', log = () => {} } = {}) {
@@ -120,12 +145,23 @@ export async function fetchProductDetail({ url, marketplace = 'TR', log = () => 
     const integer = value => { const n = value == null || value === '' ? NaN : Number(value); return Number.isSafeInteger(n) && n >= 0 ? n : null; };
     const crumbs = Array.isArray(data?.crumbs) ? data.crumbs : [];
     log('商品页：' + (data?.h1 || data?.title || ''));
-    return { url:guard.url, productId:parseProductId(guard.url), title:data?.h1 || data?.title || null,
+    const capturedAt = new Date().toISOString();
+    const record = { url:guard.url, productId:parseProductId(guard.url), title:data?.h1 || data?.title || null,
       marketplace:site.value, currency:site.currency, price,
       ...(sa ? { ratingCount:integer(s?.ratingCount), commentCount:integer(s?.commentCount), rating:parseRating(s?.rating), metricSource:s?.source || null } : { priceTRY:price }),
       breadcrumb:crumbs, categoryPath:formatBreadcrumb(crumbs), categoryRank:sa ? null : parseCategoryRank(data?.bodyHead),
       priceText:data?.priceText || null, attributes:data?.attrs || {},
       origin:(String(data?.bodyHead || '').match(/Menşei\s*\n?\s*([A-Z]{2})\b/) || [])[1] || null,
-      fetchedAt:new Date().toISOString(), source:'trendyol:商品页' };
+      fetchedAt:capturedAt, source:'trendyol:商品页' };
+    if (!record.title || record.price === null) record.diagnostic = await pageDiagnostic(tabId, 'deterministic_detail_fields_missing');
+    return attachBrowserEvidence(record, {
+      sourceUrl: guard.url, source: record.source, capturedAt,
+      expectedOrigin: site.origin, expectedMarketplace: site.value, expectedCurrency: site.currency,
+      locators: {
+        title: 'h1/title/structured-data', price: 'structured-data or product-price selectors',
+        rating: 'structured-data aggregateRating', ratingCount: 'structured-data ratingCount',
+        commentCount: 'structured-data reviewCount', breadcrumb: 'breadcrumb selectors', attributes: 'product attribute selectors',
+      },
+    });
   } finally { await closeTab(tabId); }
 }
