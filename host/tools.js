@@ -937,7 +937,7 @@ function createLegacyTools({ ctx, dataDir, secrets, providers, version }) {
         '推荐顺序：先 snapshot 拿页面结构与控件编号（ref 形如 e12，跨快照稳定），再用 click/type 的 ref 操作；没有 ref 时才退回 selector / text / xpath。',
         'action：tabs 列标签页 ｜ state 页面概况 ｜ backend 浏览器驱动状态 ｜ snapshot 文本快照（含编号控件、正文、表单值脱敏；delta=true 只看变化）｜ click ｜ type ｜ press ｜ scroll ｜ drag ｜ read ｜ wait ｜ scrollAll ｜ navigate 导航到 URL ｜ back/forward/reload ｜ screenshot 截图（需 CDP）｜ follow 跟随标签页。',
         'target：tabId（精确）｜url（按 URL 片段匹配已打开标签页）。写操作必须传精确 tabId，或让 url 只匹配一个标签页；多匹配会拒绝，避免误操作。元素定位：ref ｜ selector ｜ text ｜ xpath，四选一。',
-        '截图需要 Chrome 以 --remote-debugging-port 启动（browser.driver=cdp），且只能写数据目录 screenshots/ 下的新 PNG；未开启时截图返回明确错误，其它动作可走 AppleScript。',
+        '截图需要 Chrome 以 --remote-debugging-port 启动（browser.driver=cdp），且只能写数据目录 screenshots/ 下的新 PNG；macOS 未开启调试端口时截图报错、其它动作走 AppleScript，Windows/Linux 必须开 CDP。插件不会自行启动浏览器。',
         '纪律：不绕过验证码、登录、限流、拒绝访问或付费墙；命中风险页时写操作直接停止。跨域 frame 的 fN:eN ref 只读，不自动点击。',
       ].join('\n'),
       parameters: {
@@ -988,21 +988,27 @@ function createLegacyTools({ ctx, dataDir, secrets, providers, version }) {
           page = await import('./web/page-actions.js');
           chrome = await import('./web/chrome.js');
         } catch (error) {
-          return err('PAGE_UNAVAILABLE', '页面操作模块不可用：' + String(error?.message ?? error), '需要 macOS + Google Chrome；其它平台无法驱动页面。');
+          return err('PAGE_UNAVAILABLE', '页面操作模块不可用：' + String(error?.message ?? error), '需要 Google Chrome：macOS 可用 AppleScript 或 CDP；Windows/Linux 需以 --remote-debugging-port 启动 Chrome。');
         }
+        const launchHint = typeof chrome.chromeLaunchHint === 'function' ? chrome.chromeLaunchHint() : '';
         if (action === 'backend') {
           try {
             const { browserBackendInfo } = await import('./web/chrome.js');
             return { ok: true, backend: await browserBackendInfo({ force: true }) };
           } catch (error) {
-            return err('BROWSER_BACKEND_FAILED', String(error?.message ?? error));
+            return err('BROWSER_BACKEND_FAILED', String(error?.message ?? error), launchHint || undefined);
           }
         }
         let tabs = [];
         try {
           tabs = await chrome.listTabs();
         } catch (error) {
-          return err('CHROME_UNREACHABLE', String(error?.message ?? error), '确认 Chrome 正在运行，且系统已允许终端/DSH 控制 Google Chrome。');
+          const hint = error?.launchHint || launchHint;
+          return err(
+            typeof error?.code === 'string' && /^(CDP_REQUIRED|BROWSER_UNSUPPORTED_ON_PLATFORM|CDP_UNREACHABLE|APPLESCRIPT_UNSUPPORTED)$/.test(error.code) ? error.code : 'CHROME_UNREACHABLE',
+            String(error?.message ?? error),
+            hint ? (process.platform === 'darwin' ? '确认 Chrome 正在运行，且系统已允许终端/DSH 控制 Google Chrome。' : '当前平台需先启动带调试端口的 Chrome：' + hint) : '确认 Chrome 正在运行。',
+          );
         }
         if (action === 'tabs') {
           return { ok: true, count: tabs.length, tabs: tabs.map((t) => ({ id: t.id, url: t.url, title: t.title || '' })) };

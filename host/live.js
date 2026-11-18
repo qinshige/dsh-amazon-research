@@ -68,9 +68,10 @@ export async function beginSession({ runId, dir, record = false, fps = 2, source
     session.recorder = started.ok ? recorder : null;
     session.recordError = started.ok ? null : started.reason;
     if (started.ok) {
-      push({ phase: 'record', level: 'info', message: '开始实时显示 Chrome 窗口（' + fps + ' fps，不产出视频文件）' });
+      const sourceLabel = started.method === 'cdp' ? '页面（CDP 截图）' : 'Chrome 窗口区域';
+      push({ phase: 'record', level: 'info', message: '开始实时显示' + sourceLabel + '（' + fps + ' fps，不产出视频文件）' });
     } else {
-      push({ phase: 'record', level: 'warn', message: '屏幕录制不可用，仅保留实时事件流：' + started.reason });
+      push({ phase: 'record', level: 'warn', message: '实时画面不可用，仅保留实时事件流：' + started.reason });
     }
   }
   push({ phase: 'start', level: 'info', message: '开始取数' + (source ? '（' + source + '）' : '') });

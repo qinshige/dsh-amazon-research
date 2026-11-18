@@ -85,13 +85,19 @@ test('真实 Chrome/CDP：快照、ref 单次点击、输入、跨域 frame 与�
     chrome.resetBrowserCache();
 
     let tabs = [];
-    for (let i = 0; i < 50; i += 1) {
-      tabs = await chrome.listTabs();
-      if (tabs.some((tab) => tab.url === pageUrl)) break;
-      await new Promise((resolve) => setTimeout(resolve, 100));
+    // DevToolsActivePort 可能先于 HTTP 端点就绪写出，这里容忍刚开始的 ECONNREFUSED。
+    for (let i = 0; i < 60; i += 1) {
+      try {
+        tabs = await chrome.listTabs();
+        if (tabs.some((tab) => tab.url === pageUrl)) break;
+      } catch (error) {
+        if (i === 59) throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
     }
     const tab = tabs.find((item) => item.url === pageUrl);
-    assert.ok(tab?.id.startsWith('cdp:'));
+    assert.ok(tab, '应能在 CDP 里找到 fixture 页面，实际：' + tabs.map((item) => item.url).join(' | '));
+    assert.ok(tab.id.startsWith('cdp:'));
     await chrome.waitFor(tab.id, 'document.readyState === "complete"', { timeout: 10, intervalMs: 100 });
 
     const snap = await caps.snapshot(tab.id, { maxChars: 20_000, maxItems: 100 });

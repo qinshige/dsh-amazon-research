@@ -12,6 +12,24 @@
 import { spawn } from 'node:child_process';
 import { push as livePush } from '../live.js';
 
+/** 平台可注入，仅用于在非 macOS 环境验证门禁逻辑（测试/诊断）。 */
+let platformOverride = '';
+
+/** 覆盖平台判断（传空串恢复 process.platform）。 */
+export function setPlatformForTest(value) {
+  platformOverride = typeof value === 'string' ? value : '';
+}
+
+/** 当前生效平台。 */
+export function currentPlatform() {
+  return platformOverride || process.platform;
+}
+
+/** AppleScript 后端只在 macOS 可用；Windows/Linux 必须走 CDP。 */
+export function isAppleScriptSupported(platform = currentPlatform()) {
+  return platform === 'darwin';
+}
+
 const APPLESCRIPT = `on run argv
   set verb to item 1 of argv
   if verb is "tabs" then
@@ -98,6 +116,12 @@ function ensureScript() {
  * 调用方式与 chrome_tab.py 一致：脚本内容走 stdin，参数跟在 '-' 之后（osascript - <verb> <args>）。
  */
 function osa(verbArgs, timeout = 120_000) {
+  if (!isAppleScriptSupported()) {
+    return Promise.reject(Object.assign(
+      new Error('AppleScript 后端仅支持 macOS；当前平台 ' + currentPlatform() + ' 需用 CDP（Chrome 加 --remote-debugging-port 启动）'),
+      { code: 'APPLESCRIPT_UNSUPPORTED', platform: currentPlatform() },
+    ));
+  }
   const script = ensureScript();
   return new Promise((resolve, reject) => {
     const child = spawn('osascript', ['-', ...verbArgs], { stdio: ['pipe', 'pipe', 'pipe'] });

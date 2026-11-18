@@ -24,7 +24,7 @@ import { registerRoutes } from './host/routes.js';
 import { resetBrowserCache } from './host/web/chrome.js';
 
 export const name = 'dsh-amazon-research';
-export const version = '0.7.0';
+export const version = '0.8.0';
 
 /** 工具是硬依赖；缺了它插件没有意义。 */
 export const inject = ['tools'];
@@ -57,7 +57,7 @@ const GUIDANCE_TEXT = [
   'research_product_select(action=screen,candidates=[按plan模板填数据])生成最终对标品.md、淘汰候选.md、利润测算.xlsx、evidence索引。证据索引不代表截图已采集；缺失来源/日期/费用必须如实标记。',
   '样品2–3件，首批20–30件；1000展示、50–100有效点击、20–30单为内部测试观察阈值，每7–14天竞品快照。未真实满足扩货条件不得推荐扩货。',
   '读页面用 research_page：先 snapshot 拿编号控件（ref 如 e12，跨快照稳定），再 click/type 传 ref；长页面用 delta=true。navigate/back/forward/reload 做导航，screenshot 只在 CDP 驱动下可用。',
-  '浏览器驱动默认 auto：Chrome 开了 --remote-debugging-port 就走 CDP（真实输入、可截图），否则回落 AppleScript（需「允许 Apple Events 执行 JavaScript」）。action=backend 可查看当前驱动与端口，不绕过验证码/登录/付费墙。',
+  '浏览器驱动默认 auto：Chrome 开了 --remote-debugging-port 就走 CDP（真实输入、可截图），否则 macOS 回落 AppleScript（需「允许 Apple Events 执行 JavaScript」）；Windows/Linux 只支持 CDP，未开调试端口会直接提示启动命令（插件不会自行启动浏览器）。action=backend 可查看当前驱动与端口，不绕过验证码/登录/付费墙。',
   '1688/Alibaba只用于供应链，Google/TikTok/Instagram仅解释需求，其他国家Trendyol只辅助。不得凭记忆补商品数字或伪造证据。',
 ].join('\n');
 

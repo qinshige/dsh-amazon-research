@@ -1,5 +1,23 @@
 # dsh-amazon-research
 
+## v0.8.0：支持 Windows / Linux（CDP 驱动），macOS 保持全功能
+
+浏览器层按平台分流：**插件自己从不启动 Chrome**，只驱动你已经开着的浏览器或连接你开的调试端口。
+
+| 平台 | 可用驱动 | 说明 |
+| --- | --- | --- |
+| macOS | CDP 或 AppleScript | `auto` 先探测 CDP，不可用回落 AppleScript（需「View → Developer → Allow JavaScript from Apple Events」） |
+| Windows 10/11 | 仅 CDP | 必须用 `--remote-debugging-port` 启动 Chrome；未开端口时 `research_page` 报 `CDP_REQUIRED` 并给出完整启动命令，不会误报「osascript 不存在」 |
+| Linux | 仅 CDP | 同上 |
+
+Windows 启动示例（自己执行，插件不代跑）：
+
+```bat
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%LOCALAPPDATA%\dsh-chrome"
+```
+
+平台差异只影响浏览器层，选品计算、Sellersprite/Trendyol 数据入口、报告与 xlsx 落盘在三个平台一致。实时画面（`record:true`）在 macOS 默认截 Chrome 窗口，在 CDP 下改用 `Page.captureScreenshot`（跨平台、不再需要「屏幕录制」权限，面板仍读 `live/frame.jpg`，服务端自动回退到 `live/frame.png`）。
+
 ## v0.7.0：内建 dsh-browser 风格能力（安全快照 + 固定后端句柄 + CDP）
 
 `research_page` 在插件内部提供浏览器读取与受控交互；不安装、不调用外部 Lum1104 插件或 Chrome 扩展。Amazon 非沙特与 Trendyol.sa 的业务规则保持不变，高层采集器仍优先使用确定性选择器。
@@ -265,7 +283,7 @@
 - 保留原插件 ID、工具名及 Amazon 路径；历史无 platform 的记录按 Amazon 展示。
 - 设置页联动选择平台 → 数据源 → 站点，面板可切换默认平台、过滤历史平台。
 - Amazon：Sellersprite MCP / Sellersprite 网页；Sorftime 仍是预留能力，不能设为品类报告默认源。
-- Trendyol：土耳其 TR（www.trendyol.com，TRY/TL）与沙特阿拉伯 SA（www.trendyol.sa/en，SAR），数据源 trendyol-web，无需密钥。当前驱动依赖 macOS Google Chrome、允许 Apple Events 执行 JavaScript，并在目标官网确认国家；不会自动切国或悄悄退回 TR。
+- Trendyol：土耳其 TR（www.trendyol.com，TRY/TL）与沙特阿拉伯 SA（www.trendyol.sa/en，SAR），数据源 trendyol-web，无需密钥。当前驱动依赖 Google Chrome（macOS 可 AppleScript，Windows/Linux 需 CDP 调试端口），并在目标官网确认国家；不会自动切国或悄悄退回 TR。
 - 国家目录来自官网公开 storefrontList：2026-11-13 快照中 47 项、启用 39 项，全部用中文展示。按 ISO 国家代码区分（storefrontId 可重复），只展示 enabled=true；8 个禁用国家不展示。币种遵循官网而非当地法币推测。来源快照在 host/platforms/trendyol-countries.snapshot.json。
 - 39 个国家不等于 39 个抓取器：当前仅 TR / SA 接通，其余显示“抓取待接通”，调用在访问浏览器前返回 UNSUPPORTED_SITE。官网后续增减需更新快照及中文映射。
 - 轻量状态探测只列标签页，不打开数据页；它不是登录、国家或页面可抓取的验证结果。
@@ -684,7 +702,7 @@ DSR_CACHE_MARKET=<上一轮 market.json> DSR_PROFIT_INPUT=.cache/profit-input.js
 - 当前只做**品类选品**；ASIN 体检 / 词库 / 差评分析 / Listing builder 在后续版本
 - 只接入了卖家精灵（自备 key）；Sorftime 适配代码保留但未验收
 - 利润维度未接 1688 采购成本时按价格带估算，报告会显式标注「仅供初筛」
-- 网页登录态链路依赖 macOS + Google Chrome + AppleScript，其他平台需自行实现 `host/web/chrome.js`
+- 网页登录态链路依赖 Google Chrome：macOS 可用 AppleScript 或 CDP，Windows/Linux 需以 `--remote-debugging-port` 启动 Chrome（见上方 v0.8.0 平台说明）
 - 网页链路没有 `market_*` 分布工具，分布由 Top N 父体样本推导（已标注口径）
 - 包装规格对齐依赖 Amazon 前台搜索页标题实测；样本不足的细分（如 Tarps 仅 1 条）已标注置信度低
 - 1688 搜索页频控约 5 个关键词；命中验证码即停手报错，不绕过

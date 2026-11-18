@@ -18,6 +18,40 @@ let configCache = { at: 0, value: null };
 let backendCache = { at: 0, value: null };
 let infoCache = { at: 0, value: null };
 
+/** 当前平台；可用测试钩子覆盖。 */
+function platformNow() {
+  return typeof apple.currentPlatform === 'function' ? apple.currentPlatform() : process.platform;
+}
+
+function appleSupported(platform = platformNow()) {
+  return typeof apple.isAppleScriptSupported === 'function' ? apple.isAppleScriptSupported(platform) : platform === 'darwin';
+}
+
+/** 各平台启用浏览器的具体命令，用于错误提示，绝不由插件执行。 */
+export function chromeLaunchHint(platform = platformNow(), port = 9222) {
+  if (platform === 'win32') {
+    return '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=' + port + ' --user-data-dir="%LOCALAPPDATA%\\dsh-chrome"';
+  }
+  if (platform === 'linux') {
+    return 'google-chrome --remote-debugging-port=' + port + ' --user-data-dir=/tmp/dsh-chrome';
+  }
+  return 'macOS 可开启 Chrome 的「允许 Apple Events 执行 JavaScript」；或用 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=' + port + ' --user-data-dir=/tmp/dsh-chrome';
+}
+
+/** 平台支持说明（供状态接口与报错使用）。 */
+export function platformSupport(platform = platformNow()) {
+  const supported = appleSupported(platform);
+  return {
+    platform,
+    applescriptSupported: supported,
+    driverMode: supported ? 'auto(CDP 优先，回落 AppleScript)' : 'cdp-only',
+    launchHint: chromeLaunchHint(platform),
+    note: supported
+      ? 'macOS：未开调试端口时回落 AppleScript'
+      : '当前平台只支持 CDP：必须用 --remote-debugging-port 启动 Chrome（插件不会自行启动浏览器）',
+  };
+}
+
 function envDriver() {
   const raw = String(process.env.DSH_AMAZON_BROWSER_DRIVER || '').trim().toLowerCase();
   return VALID_DRIVERS.has(raw) ? raw : '';
@@ -46,22 +80,39 @@ export async function readBrowserConfig() {
   return configCache.value;
 }
 
-/** 解析当前默认后端。强制 cdp 时端口不可用会立即报错。 */
+/** 解析当前默认后端。强制 cdp 时端口不可用会立即报错；非 macOS 不允许回落 AppleScript。 */
 export async function resolveBackend({ force = false, verify = true } = {}) {
   const now = Date.now();
-  if (!force && backendCache.value && now - backendCache.at < 5000) return backendCache.value;
+  const platform = platformNow();
+  if (!force && backendCache.value && now - backendCache.at < 5000 && backendCache.value.platform === platform) return backendCache.value;
   const config = await readBrowserConfig();
   cdp.configureCdp({ port: config.port });
+  const support = platformSupport(platform);
   let backend = 'applescript';
+  if (config.driver === 'applescript' && !support.applescriptSupported) {
+    throw Object.assign(new Error('当前平台 ' + platform + ' 不支持 AppleScript 后端，请改用 CDP：' + support.launchHint), {
+      code: 'BROWSER_UNSUPPORTED_ON_PLATFORM', platform, launchHint: support.launchHint,
+    });
+  }
   if (config.driver === 'cdp') {
     if (verify && !(await cdp.cdpAvailable({ timeoutMs: 1000 }))) {
-      throw Object.assign(new Error('无法连接强制配置的 Chrome CDP 端口 127.0.0.1:' + config.port), { code: 'CDP_UNREACHABLE' });
+      throw Object.assign(new Error('无法连接强制配置的 Chrome CDP 端口 127.0.0.1:' + config.port + '；请先用以下命令启动 Chrome：' + support.launchHint), {
+        code: 'CDP_UNREACHABLE', launchHint: support.launchHint,
+      });
     }
     backend = 'cdp';
   } else if (config.driver === 'auto') {
-    backend = (await cdp.cdpAvailable({ timeoutMs: 800 })) ? 'cdp' : 'applescript';
+    if (await cdp.cdpAvailable({ timeoutMs: 800 })) {
+      backend = 'cdp';
+    } else if (support.applescriptSupported) {
+      backend = 'applescript';
+    } else {
+      throw Object.assign(new Error('当前平台 ' + platform + ' 的页面读取需要 Chrome 调试端口：' + support.launchHint), {
+        code: 'CDP_REQUIRED', platform, launchHint: support.launchHint,
+      });
+    }
   }
-  const value = { backend, driver: config.driver, port: config.port, module: BACKENDS[backend] };
+  const value = { backend, driver: config.driver, port: config.port, module: BACKENDS[backend], platform, appleSupported: support.applescriptSupported, launchHint: support.launchHint };
   backendCache = { at: now, value };
   return value;
 }
@@ -89,6 +140,11 @@ export function decodeTabId(tabId) {
 export async function resolveTabBackend(tabId) {
   const decoded = decodeTabId(tabId);
   if (decoded.backend) {
+    if (decoded.backend === 'applescript' && !appleSupported()) {
+      throw Object.assign(new Error('该标签页句柄属于 AppleScript 后端，当前平台 ' + platformNow() + ' 无法使用；请重新用 action=tabs 取 CDP 句柄'), {
+        code: 'BROWSER_UNSUPPORTED_ON_PLATFORM', platform: platformNow(), launchHint: chromeLaunchHint(),
+      });
+    }
     const config = await readBrowserConfig();
     cdp.configureCdp({ port: config.port });
     return { backend: decoded.backend, module: BACKENDS[decoded.backend], rawId: decoded.rawId, port: config.port };
@@ -98,37 +154,46 @@ export async function resolveTabBackend(tabId) {
 }
 
 export async function browserBackendInfo({ force = false } = {}) {
-  if (!force && infoCache.value && Date.now() - infoCache.at < 15_000) return infoCache.value;
+  const platform = platformNow();
+  if (!force && infoCache.value && Date.now() - infoCache.at < 15_000 && infoCache.value.platform === platform) return infoCache.value;
   const config = await readBrowserConfig();
   cdp.configureCdp({ port: config.port });
+  const support = platformSupport(platform);
   const cdpAvailable = await cdp.cdpAvailable({ timeoutMs: 1000 });
   let appleTabs = null;
   let appleError = null;
-  try {
-    appleTabs = (await apple.listTabs()).length;
-  } catch (error) {
-    appleError = String(error?.message ?? error);
+  if (support.applescriptSupported) {
+    try {
+      appleTabs = (await apple.listTabs()).length;
+    } catch (error) {
+      appleError = String(error?.message ?? error);
+    }
   }
-  let active = config.driver === 'cdp' ? 'cdp' : 'applescript';
+  let active = config.driver === 'cdp' ? 'cdp' : (support.applescriptSupported ? 'applescript' : 'cdp');
   let backendError = null;
   try {
     active = (await resolveBackend({ force })).backend;
   } catch (error) {
-    backendError = { code: String(error?.code || 'BROWSER_BACKEND_FAILED'), message: String(error?.message ?? error) };
+    backendError = { code: String(error?.code || 'BROWSER_BACKEND_FAILED'), message: String(error?.message ?? error), launchHint: error?.launchHint || support.launchHint };
+    active = cdpAvailable ? 'cdp' : (support.applescriptSupported ? 'applescript' : 'cdp');
   }
   const value = {
+    platform,
+    driverMode: support.driverMode,
     driver: config.driver,
     active,
     cdpPort: config.port,
     cdpAvailable,
+    applescriptSupported: support.applescriptSupported,
     applescriptAvailable: appleTabs !== null,
     applescriptTabs: appleTabs,
     applescriptError: appleError,
     backendError,
     tabIdFormat: 'apple:<id> | cdp:<id>',
+    launchHint: support.launchHint,
     note: cdpAvailable
       ? 'CDP 可用：真实输入事件 + 截图，不需要 Chrome 的 Apple Events JavaScript 开关'
-      : 'CDP 未开启：如需真实输入/截图，可用 --remote-debugging-port=' + config.port + ' 启动 Chrome（Chrome 136+ 须配独立 --user-data-dir）；否则沿用 AppleScript',
+      : support.note + (support.applescriptSupported ? '；CDP 未开启，当前沿用 AppleScript' : ''),
   };
   infoCache = { at: Date.now(), value };
   return value;

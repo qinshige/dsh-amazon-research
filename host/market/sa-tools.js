@@ -109,6 +109,7 @@ export function saOnlyTools(legacy, { dataDir }) {
     description: [
       '读取已登录的Amazon研究/卖家精灵、Trendyol.sa以及1688/Alibaba供应链页面。沙特需求只以Trendyol.sa为准；不绕过验证码、登录或付费墙。',
       '推荐顺序：snapshot 取文本快照与编号控件（ref 如 e12，跨快照稳定）→ click/type 传 ref；长页面用 delta=true 只看变化。navigate/back/forward/reload 做导航，screenshot 需 CDP 驱动，backend 查看当前驱动。',
+      'Windows/Linux 只有 CDP 驱动：先用 --remote-debugging-port 启动 Chrome（插件不会自行启动浏览器）；macOS 未开调试端口时回落 AppleScript。',
     ].join('\n'),
   };
   return [byName.research_provider_status, category, selection, cost, mcp, byName.research_runs, page, createSaudiSourceTool()];

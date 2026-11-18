@@ -282,7 +282,8 @@ export async function history(tabId, action, options = {}) {
 export async function screenshot(tabId, { fullPage = false, savePath = null } = {}) {
   const backend = await resolveTabBackend(tabId);
   if (backend.backend !== 'cdp') {
-    throw Object.assign(new Error('截图需要 CDP：用 --remote-debugging-port=' + backend.port + ' 启动 Chrome（Chrome 136+ 须配独立 --user-data-dir）'), { code: 'SCREENSHOT_NEEDS_CDP' });
+    const { chromeLaunchHint } = await import('./chrome.js');
+    throw Object.assign(new Error('截图需要 CDP：' + chromeLaunchHint(process.platform, backend.port)), { code: 'SCREENSHOT_NEEDS_CDP' });
   }
   const screenshotRoot = resolve(resolveDataDir(process.env.DSH_AMAZON_DATA_DIR), 'screenshots');
   const requested = typeof savePath === 'string' && savePath.trim() ? savePath.trim() : '';

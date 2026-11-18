@@ -357,13 +357,23 @@ export async function evaluateInFrame(tabId, frameId, expression, { timeout = 30
   try { return JSON.parse(value); } catch { return value; }
 }
 
-/** 标签页截图（PNG base64）。 */
-export async function captureScreenshot(tabId, { fullPage = false } = {}) {
-  const result = await send(tabId, 'Page.captureScreenshot', {
+/** 标签页截图（PNG base64）。clip 为空时取可视区域，fullPage 时尽量含可视区之外。 */
+export async function captureScreenshot(tabId, { fullPage = false, clip = null } = {}) {
+  const params = {
     format: 'png',
     fromSurface: true,
-    captureBeyondViewport: fullPage === true,
-  }, { timeoutMs: 60_000 });
+    captureBeyondViewport: fullPage === true || Boolean(clip),
+  };
+  if (clip && Number.isFinite(Number(clip.width)) && Number.isFinite(Number(clip.height))) {
+    params.clip = {
+      x: Number(clip.x) || 0,
+      y: Number(clip.y) || 0,
+      width: Math.max(1, Number(clip.width)),
+      height: Math.max(1, Number(clip.height)),
+      scale: Number.isFinite(Number(clip.scale)) && Number(clip.scale) > 0 ? Number(clip.scale) : 1,
+    };
+  }
+  const result = await send(tabId, 'Page.captureScreenshot', params, { timeoutMs: 60_000 });
   if (!result?.data) throw Object.assign(new Error('截图失败：没有返回图像数据'), { code: 'CDP_SCREENSHOT_FAILED' });
   return Buffer.from(result.data, 'base64');
 }
