@@ -719,8 +719,9 @@ async function releaseTab(tabId) {
 }
 
 /** 登录墙 / 验证码守卫：命中即抛错，不绕过 */
-async function assertNoWall(tabId, where) {
+async function assertNoWall(tabId, where, strict = false) {
   const guard = await runSnippet(tabId, 'page-guard.js');
+  if (strict && (!guard || typeof guard.status !== 'string')) throw Object.assign(new Error(where + '：页面守卫无有效结果，暂停'), { code: 'GUARD_UNKNOWN' });
   if (!guard || guard.status === 'OK') return;
   const err = new Error(where + '：' + (guard.reason || guard.status) + '（已停止抓取）');
   err.code = guard.status === 'CAPTCHA' ? 'CAPTCHA' : guard.status === 'BLOCKED' ? 'RATE_LIMITED' : 'NOT_LOGGED_IN';
@@ -736,7 +737,7 @@ async function assertNoWall(tabId, where) {
  */
 import { push as livePush } from '../live.js';
 
-export async function searchOffers({ keyword, limit = 20, log = () => {} } = {}) {
+export async function searchOffers({ keyword, limit = 20, log = () => {}, stopOnWall = false } = {}) {
   livePush({ phase: 'sourcing', level: 'info', message: '搜索 1688 货源：' + (keyword || '') });
   if (!keyword) throw new Error('缺少 keyword');
   const url = buildSearchUrl(keyword);
@@ -749,8 +750,10 @@ export async function searchOffers({ keyword, limit = 20, log = () => {} } = {})
       'document.querySelectorAll(\'a[href*="detail.1688.com/offer/"]\').length > 0 || /punish|x5sec|tmd_____/.test(location.href)',
       { timeout: 45 },
     );
+    if (stopOnWall) await assertNoWall(tabId, '1688 搜索页', stopOnWall);
     // 搜索页是虚拟滚动，向下滚几屏让更多卡片渲染出来（滚动太快容易被判成机器人，节奏放慢）
     for (let i = 0; i < 2; i += 1) {
+      if (stopOnWall) await assertNoWall(tabId, '1688 搜索页滚动前', true);
       await runJs(tabId, 'window.scrollTo(0, document.body.scrollHeight); "OK"', { timeout: 30_000 }).catch(() => {});
       await new Promise((r) => setTimeout(r, 2500));
     }
@@ -758,7 +761,7 @@ export async function searchOffers({ keyword, limit = 20, log = () => {} } = {})
     await new Promise((r) => setTimeout(r, 1000));
 
     // 滚动过程中可能已经被跳到滑块验证页，所以抓取前再守一次
-    await assertNoWall(tabId, '1688 搜索页');
+    await assertNoWall(tabId, '1688 搜索页', stopOnWall);
     const data = await runSnippet(tabId, 'search-cards.js');
     const items = Array.isArray(data && data.items) ? data.items : [];
     if (!items.length) {
@@ -807,6 +810,8 @@ export async function searchOffers({ keyword, limit = 20, log = () => {} } = {})
  */
 /** 详情页共用的标签页（复用，避免每个 offer 都开新标签 → 触发滑块验证）。 */
 let detailTabId = null;
+// Saudi leaves its tab intact for manual verification; never reuses a legacy closed tab.
+let strictDetailTabId = null;
 
 /** 详情页最小间隔（毫秒）：1688 对高频访问会弹滑块验证。 */
 const DETAIL_MIN_INTERVAL_MS = 2500;
@@ -820,7 +825,7 @@ export async function resetDetailTab() {
   }
 }
 
-export async function fetchOfferDetail({ url, log = () => {} } = {}) {
+export async function fetchOfferDetail({ url, log = () => {}, stopOnWall = false } = {}) {
   livePush({ phase: 'sourcing', level: 'info', message: '进 1688 详情页验证阶梯价', url });
   if (!url) throw new Error('缺少 url');
   const offerId = (String(url).match(/offer\/(\d+)\.html/) || [])[1] || null;
@@ -828,12 +833,16 @@ export async function fetchOfferDetail({ url, log = () => {} } = {}) {
   const cleanUrl = DETAIL_ENDPOINT + offerId + '.html';
   log('打开 1688 详情页：' + cleanUrl);
   // 复用同一个标签页：每个 offer 开新标签会堆出上百个标签页并触发 1688 滑块验证。
-  let tabId = detailTabId;
+  let tabId = stopOnWall ? strictDetailTabId : detailTabId;
   if (tabId === null) {
     tabId = await openTab(cleanUrl);
-    detailTabId = tabId;
+    if (stopOnWall) strictDetailTabId = tabId;
+    else detailTabId = tabId;
   } else {
-    await runJs(tabId, 'location.href = ' + JSON.stringify(cleanUrl) + '; "OK"', { timeout: 30_000 }).catch(() => {});
+    if (stopOnWall) await assertNoWall(tabId, '1688现有详情页（导航前）', true);
+    const navigation = runJs(tabId, 'location.href = ' + JSON.stringify(cleanUrl) + '; "OK"', { timeout: 30_000 });
+    if (stopOnWall) await navigation;
+    else await navigation.catch(() => {});
   }
   try {
     await waitFor(
@@ -847,19 +856,27 @@ export async function fetchOfferDetail({ url, log = () => {} } = {}) {
     if (gap < DETAIL_MIN_INTERVAL_MS) await new Promise((r) => setTimeout(r, DETAIL_MIN_INTERVAL_MS - gap));
     lastDetailAt = Date.now();
     try {
-      await assertNoWall(tabId, '1688 详情页');
+      await assertNoWall(tabId, '1688 详情页', stopOnWall);
     } catch (wallError) {
-      // 验证页：换一个干净标签页重试一次（不绕过验证，只是换会话）
+      // Saudi strict collection stops immediately and leaves the page for human review.
+      if (stopOnWall) throw wallError;
+      // 历史 Amazon 路径保留原行为；沙特严格路径不进入重试分支。
       livePush({ phase: 'sourcing', level: 'warn', message: '1688 出现滑块验证，换标签页重试一次' });
       await resetDetailTab();
       tabId = await openTab(cleanUrl);
       detailTabId = tabId;
       await waitFor(tabId, 'document.querySelector("h1") !== null || /punish|x5sec|tmd_____/.test(location.href)', { timeout: 45 });
       await new Promise((r) => setTimeout(r, 3500));
-      await assertNoWall(tabId, '1688 详情页');
+      await assertNoWall(tabId, '1688 详情页', stopOnWall);
     }
 
+    if (stopOnWall) {
+      const actual = await runJs(tabId, 'location.href', { timeout: 30_000 });
+      const actualUrl = new URL(String(actual));
+      if (actualUrl.protocol !== 'https:' || actualUrl.hostname !== 'detail.1688.com' || actualUrl.pathname !== '/offer/' + offerId + '.html') throw Object.assign(new Error('1688详情页导航结果与目标offer不一致，停止核价'), { code: 'DETAIL_URL_MISMATCH' });
+    }
     const data = await runSnippet(tabId, 'detail-page.js');
+    if (stopOnWall) await assertNoWall(tabId, '1688详情采集后', true);
     const bodyText = String(data.bodyText || '');
     const lines = bodyText.split(/\n+/).map((s) => s.trim()).filter(Boolean);
 
@@ -1050,6 +1067,6 @@ export async function fetchOfferDetail({ url, log = () => {} } = {}) {
       source: SOURCE_DETAIL,
     };
   } finally {
-    await releaseTab(tabId);
+    if (!stopOnWall) await releaseTab(tabId);
   }
 }

@@ -19,8 +19,9 @@ function fakeProviders() {
     list: () => [
       { id: 'sellersprite', label: '卖家精灵', capabilities: ['market'] },
       { id: 'sorftime', label: 'Sorftime', capabilities: ['category'] },
+      { id: 'trendyol-web', label: 'Trendyol.sa', capabilities: ['category'] },
     ],
-    status: async (id) => ({ id, label: id, configured: id === 'sellersprite', ok: id === 'sellersprite', capabilities: [] }),
+    status: async (id) => ({ id, label: id, configured: id === 'trendyol-web', ok: id === 'trendyol-web', capabilities: [] }),
     call: async () => ({ ok: true }),
   };
 }
@@ -41,8 +42,14 @@ test('research_provider_status 返回数据源与配置', async () => {
     assert.ok(status);
     const result = await status.execute({ provider: 'all' });
     assert.equal(result.ok, true);
-    assert.equal(result.providers.length, 2);
-    assert.equal(result.providers[0].configured, true);
+    assert.equal(result.providers.length, 3);
+    assert.deepEqual(result.providers.map(p => p.id), ['sellersprite', 'sorftime', 'trendyol-web']);
+    assert.equal(result.config.marketplace, 'US');
+    assert.equal(result.config.provider, 'sellersprite');
+    const amazon = await status.execute({ provider: 'sellersprite' });
+    assert.equal(amazon.ok, true);
+    assert.equal(amazon.providers[0].id, 'sellersprite');
+    assert.equal(result.providers.find(p => p.id === 'trendyol-web').configured, true);
     assert.ok(result.config.outputRoot);
   });
 });

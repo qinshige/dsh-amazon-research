@@ -409,8 +409,11 @@ export async function selectCategoryWeb({ marketplace = 'US', category, nodeIdPa
   const report = await sellerspriteWebProvider.nodeReport({ nodeIdPath: resolvedPath, log });
   reportLabel = report.leafName || report.marketName || null;
   if (!category && reportLabel) resolvedLabel = reportLabel;
-  reportLabel = report.leafName || report.marketName || null;
-  if (!category && reportLabel) resolvedLabel = reportLabel;
+  const categoryPath = String(report.marketName || '').trim();
+  const categoryLevels = categoryPath
+    .split(/\s*(?:›|>|／|\/)\s*/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 
   // 3) Top 商品
   // 查竞品默认按父体销量排序且「展示所有变体」：同一父体的每个子体各占一行，
@@ -635,6 +638,8 @@ export async function selectCategoryWeb({ marketplace = 'US', category, nodeIdPa
     marketplace,
     provider: 'sellersprite-web',
     nodeIdPath: resolvedPath,
+    categoryPath,
+    categoryLevels,
     month: '',
     params: { category: category || '', limit, unitCost: unitCost ?? null, costSubMarkets: costRows.length },
     usage: { ...usage, totalMs: Date.now() - t0 },

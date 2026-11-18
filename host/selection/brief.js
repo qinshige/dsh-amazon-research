@@ -35,7 +35,7 @@ function pct(value, digits = 1) {
  *   TikTok Shop 佣金 6%、无 FBA 费、跨境直发 → 可以赚。
  *   只按一个渠道判生死，会对做 TK / 独立站 / 线下渠道的卖家系统性误判。
  */
-export function compareChannels(candidate, { fx = 6.7, costFx = null, settleFx = 6.6 } = {}) {
+export function compareChannels(candidate, { fx = 6.7, costFx = null, settleFx = 6.6, profile = null, freight = null } = {}) {
   const inputs = candidate.inputs || {};
   if (inputs.purchaseCNY === null || inputs.purchaseCNY === undefined) return null;
   if (!candidate.priceUSD) return null;
@@ -49,6 +49,8 @@ export function compareChannels(candidate, { fx = 6.7, costFx = null, settleFx =
       priceUSD: candidate.priceUSD,
       costFx: costFx === null || costFx === undefined ? fx : costFx,
       settleFx,
+      profile: profile || undefined,
+      freight: freight || undefined,
     });
     if (!calc) continue;
     rows.push({
@@ -56,9 +58,9 @@ export function compareChannels(candidate, { fx = 6.7, costFx = null, settleFx =
       label: channel.label,
       fulfillmentUSD: calc.fbaFeeUSD,
       fulfillmentLabel: calc.fbaLabel,
-      referralRate: channel.referralRate,
-      adRate: channel.adRate,
-      returnRate: channel.returnRate,
+      referralRate: calc.params.referralRate,
+      adRate: calc.params.adRate,
+      returnRate: calc.params.returnRate,
       netMargin: calc.netMargin,
       netProfitUSD: calc.netProfitUSD,
       netProfitCNY: calc.netProfitCNY,

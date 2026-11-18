@@ -114,11 +114,17 @@ window.__ModuleLoader__.load({
 
       'runs.title': '运行记录',
       'runs.emptyTitle': '还没有运行记录',
-      'runs.emptyBody': '在任意对话里让 Agent 跑一次品类研究（工具 research_category_select），运行记录会出现在这里。',
-      'runs.emptyHint': '每次运行都会生成 report.md / scores.json / tables / dashboard.html。',
+      'runs.emptyBody': '在对话中指定平台与站点：Amazon 使用原品类/单品研究；沙特只使用 Trendyol.sa，先 research_product_select plan 获取模板，再补证据并 screen。',
+      'runs.emptyHint': 'Amazon 保留原报告与评分；Trendyol.sa 严格工作流输出对标品、淘汰候选、利润工作簿与证据索引，资料不全时暂停。',
       'runs.total': '{total} / {max} 分',
       'runs.createdAt': '时间 {time}',
       'runs.site': '站点 {site}',
+      'runs.level1': '一级类目',
+      'runs.level2': '二级类目',
+      'runs.uncategorized': '待归类',
+      'runs.general': '综合类目',
+      'runs.productSelection': '单品筛选',
+      'runs.searchSample': '搜索样本',
 
       'provider.bannerTitle': '还没有配置 Sellersprite Secret Key',
       'provider.bannerBody': '打开「设置 → 多平台选品研究」，粘贴 Secret Key 并保存；保存成功后这里会显示「已配置」。',
@@ -232,6 +238,12 @@ window.__ModuleLoader__.load({
       'runs.total': '{total} / {max} pts',
       'runs.createdAt': 'at {time}',
       'runs.site': 'site {site}',
+      'runs.level1': 'Level 1 category',
+      'runs.level2': 'Level 2 category',
+      'runs.uncategorized': 'Uncategorized',
+      'runs.general': 'General',
+      'runs.productSelection': 'Product selection',
+      'runs.searchSample': 'Search samples',
 
       'provider.bannerTitle': 'Sellersprite Secret Key is not configured',
       'provider.bannerBody': 'Open Settings → Multi-platform Product Research, paste the Secret Key and save; this banner disappears once it is configured.',
@@ -480,7 +492,7 @@ window.__ModuleLoader__.load({
     }
 
     /** 宿主允许按运行读取的文件白名单（host/routes.js 的 FILE_WHITELIST）。 */
-    const ARTIFACT_FILE = /^(report\.md|dashboard\.html|scores\.json|market\.json|manifest\.json|tables\/[\p{L}\p{N}._-]+\.csv)$/u;
+    const ARTIFACT_FILE = /^(report\.md|最终对标品\.md|淘汰候选\.md|利润测算\.xlsx|provenance\.json|evaluation\.json|evidence\/[\p{L}\p{N}._-]+\.(?:json|md)|dashboard\.html|scores\.json|market\.json|manifest\.json|tables\/[\p{L}\p{N}._-]+\.csv)$/u;
 
     function artifactHref(runId, name) {
       if (API_BASE === null) return '';
@@ -1381,6 +1393,144 @@ window.__ModuleLoader__.load({
 
     // ─────────────────────────────────────────────────────────── 运行列表
 
+    const KNOWN_CATEGORY_LEVELS = Object.freeze({
+      '165796011': ['Baby Products', '综合类目'],
+      '165796011:166862011': ['Baby Products', 'Safety'],
+      '165796011:166863011': ['Baby Products', 'Safety'],
+      '228013': ['Tools & Home Improvement', '综合类目'],
+      '228013:511228': ['Tools & Home Improvement', 'Hardware'],
+      '228013:3180231': ['Tools & Home Improvement', 'Safety & Security'],
+      '15684181': ['Arts, Crafts & Sewing', '综合类目'],
+      '15684181:15719731': ['Arts, Crafts & Sewing', 'Sewing']
+    });
+
+    function splitCategoryPath(value) {
+      if (!isString(value) || value.trim() === '') return [];
+      return value
+        .split(/\s*(?:›|>|／|\/)\s*/)
+        .map((item) => item.trim())
+        .filter((item) => item !== '' && !/^amazon(?:\.com)?$/i.test(item));
+    }
+
+    function inferRunHierarchy(runValue) {
+      const run = isObject(runValue) ? runValue : {};
+      const explicit = Array.isArray(run.categoryLevels)
+        ? run.categoryLevels.map((item) => String(item || '').trim()).filter(Boolean)
+        : [];
+      const pathLevels = explicit.length > 0 ? explicit : splitCategoryPath(run.categoryPath || run.marketPath || '');
+      if (pathLevels.length > 0) {
+        return [pathLevels[0], pathLevels[1] || t('runs.general')];
+      }
+
+      const ids = pickString(run.nodeIdPath).split(':').filter(Boolean);
+      const pair = ids.slice(0, 2).join(':');
+      const known = KNOWN_CATEGORY_LEVELS[pair] || KNOWN_CATEGORY_LEVELS[ids[0]];
+      if (known) return [known[0], known[1] === '综合类目' ? t('runs.general') : known[1]];
+
+      const title = pickString(run.title, run.label);
+      if (/cabinet hardware/i.test(title)) {
+        return ['Tools & Home Improvement', 'Hardware'];
+      }
+      if (/child safety cabinet lock|lab,? safety|work glove|safety work glove/i.test(title)) {
+        return ['Tools & Home Improvement', 'Safety & Security'];
+      }
+      if (/cabinet locks|edge & corner guards|baby safety|^safety$/i.test(title)) {
+        return ['Baby Products', 'Safety'];
+      }
+      if (/^clips$/i.test(title)) {
+        return ['Arts, Crafts & Sewing', 'Sewing'];
+      }
+      if ((run.platform || '') === 'trendyol') {
+        return ['Trendyol', pickString(run.category, title, t('runs.searchSample'))];
+      }
+      if ((run.kind || '') === 'selection') {
+        const channel = pickString(run.channel, (/tiktok-shop/i.test(title) ? 'tiktok-shop' : ''), (/amazon-fba/i.test(title) ? 'amazon-fba' : ''));
+        return [t('runs.productSelection'), pickString(run.category, channel, t('runs.uncategorized'))];
+      }
+      return [t('runs.uncategorized'), pickString(run.category, title, t('runs.general'))];
+    }
+
+    function groupRunsByCategory(runs) {
+      const groups = new Map();
+      for (const run of runs) {
+        const hierarchy = inferRunHierarchy(run);
+        const level1 = hierarchy[0];
+        const level2 = hierarchy[1];
+        if (!groups.has(level1)) groups.set(level1, { label: level1, count: 0, children: new Map() });
+        const group = groups.get(level1);
+        group.count += 1;
+        if (!group.children.has(level2)) group.children.set(level2, { label: level2, runs: [] });
+        group.children.get(level2).runs.push(run);
+      }
+      return Array.from(groups.values()).map((group) => ({
+        label: group.label,
+        count: group.count,
+        children: Array.from(group.children.values())
+      }));
+    }
+
+    function CategoryToggle(props) {
+      const [hot, setHot] = React.useState(false);
+      return h('button', {
+        type: 'button',
+        'aria-expanded': props.open === true,
+        onClick: props.onToggle,
+        onMouseEnter: () => setHot(true),
+        onMouseLeave: () => setHot(false),
+        onFocus: () => setHot(true),
+        onBlur: () => setHot(false),
+        style: {
+          appearance: 'none',
+          width: '100%',
+          border: 0,
+          borderRadius: T.radiusMd,
+          background: hot ? T.interactive : 'transparent',
+          color: T.label,
+          fontFamily: 'inherit',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: props.nested ? '7px 8px' : '9px 8px',
+          cursor: 'pointer',
+          textAlign: 'left'
+        }
+      },
+      h('span', { style: { display: 'inline-flex', color: T.labelTertiary, transform: props.open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 140ms ease' } }, h(IconChevron, { size: 14 })),
+      h('span', { style: { display: 'flex', flexDirection: 'column', gap: 1, flex: '1 1 auto', minWidth: 0 } },
+        h('span', { style: { fontSize: 9.5, lineHeight: 1.2, color: T.labelTertiary, fontWeight: 500 } }, props.nested ? t('runs.level2') : t('runs.level1')),
+        h('span', { style: { fontSize: props.nested ? 12 : 13, fontWeight: props.nested ? 550 : 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, props.label)),
+      h(Badge, null, String(props.count || 0)));
+    }
+
+    function RunSubcategory(props) {
+      const [open, setOpen] = React.useState(props.defaultOpen === true);
+      const item = props.item;
+      return h('li', { style: { listStyle: 'none' } },
+        h(CategoryToggle, { nested: true, open, label: item.label, count: item.runs.length, onToggle: () => setOpen((value) => !value) }),
+        open ? h('ul', { style: { ...S.listReset, marginLeft: 20, borderLeft: '1px solid ' + T.borderL2, paddingLeft: 6 } }, ...item.runs.map((run, index) => h(RunRow, {
+          key: runRowKey(run, index),
+          run,
+          platforms: props.platforms,
+          onOpen: props.onOpen
+        }))) : null
+      );
+    }
+
+    function RunCategoryGroup(props) {
+      const [open, setOpen] = React.useState(props.defaultOpen === true);
+      const group = props.group;
+      return h('li', { style: { listStyle: 'none', borderTop: props.first ? '0' : '1px solid ' + T.borderL2, paddingTop: props.first ? 0 : 4, marginTop: props.first ? 0 : 4 } },
+        h(CategoryToggle, { open, label: group.label, count: group.count, onToggle: () => setOpen((value) => !value) }),
+        open ? h('ul', { style: { ...S.listReset, marginLeft: 18 } }, ...group.children.map((item, index) => h(RunSubcategory, {
+          key: group.label + '::' + item.label,
+          item,
+          defaultOpen: index === 0,
+          platforms: props.platforms,
+          onOpen: props.onOpen
+        }))) : null
+      );
+    }
+
     function runRowKey(run, index) {
       if (isObject(run) && isString(run.runId) && run.runId !== '') return run.runId;
       return 'run' + index;
@@ -1449,7 +1599,7 @@ window.__ModuleLoader__.load({
           total === null
             ? null
             : h('span', { style: { ...S.mono, color: T.labelSecondary, flex: '0 0 auto' } }, t('runs.total', { total: formatNumber(total), max: formatNumber(max) })),
-          grade === '' ? null : h(Badge, { tone: gradeTone(grade) }, grade),
+          ['trendyol', 'trendyol-sa'].includes(run.platform) && max === 92 ? h(Badge, null, '需求池 · 非推荐') : grade === '' ? null : h(Badge, { tone: gradeTone(grade) }, grade),
           h('span', { style: { display: 'inline-flex', color: T.labelTertiary, flex: '0 0 auto' } }, h(IconChevron, { size: 14 }))
         )
       );
@@ -1457,6 +1607,7 @@ window.__ModuleLoader__.load({
 
     function RunList(props) {
       const runs = Array.isArray(props.runs) ? props.runs : [];
+      const groups = groupRunsByCategory(runs);
       return h(
         Card,
         null,
@@ -1472,9 +1623,11 @@ window.__ModuleLoader__.load({
               body: t('runs.emptyBody'),
               hint: t('runs.emptyHint')
             })
-          : h('ul', { style: S.listReset }, ...runs.map((run, index) => h(RunRow, {
-              key: runRowKey(run, index),
-              run: run,
+          : h('ul', { style: S.listReset }, ...groups.map((group, index) => h(RunCategoryGroup, {
+              key: group.label,
+              group,
+              first: index === 0,
+              defaultOpen: index === 0,
               platforms: props.platforms,
               onOpen: props.onOpen
             })))
@@ -1724,7 +1877,7 @@ window.__ModuleLoader__.load({
       if (provider.id?.endsWith('-web')) return h(Card, null,
         h('strong', null, provider.label + ' · 无需 API Key'),
         h('p', { style: S.muted }, provider.id === 'trendyol-web'
-          ? '请在 Chrome 打开 Trendyol 并选择 Türkiye。公开页面采集会占用网页请求；遇验证码/限流停止。轻量状态仅检查标签页，不代表已验证国家或页面可抓取。'
+          ? '请在 Chrome 打开 www.trendyol.sa/en 并确认沙特阿拉伯与 SAR。遇验证码/限流停止；采集仅建立需求池，旧92分不代表推荐。'
           : '请在 Chrome 登录卖家精灵。网页查询次数与 MCP 额度分开计算。'),
         provider.lastError ? h('p', { style: S.muted }, provider.lastError) : null);
       const failed = provider.configured === true && provider.ok === false;
@@ -1927,7 +2080,7 @@ window.__ModuleLoader__.load({
             fetchedAt === undefined || fetchedAt === null ? null : h('span', { style: S.tiny }, t('detail.fetchedAt', { time: formatTime(fetchedAt) }))
           )
         ),
-        h(ScoreCard, { score: scores }),
+        ['trendyol', 'trendyol-sa'].includes(manifest.platform || detail.platform) ? h(Card, null, h('p', { style: S.muted }, '需求池旧92分仅为样本描述，不是推荐；工作流BB评分为100分，须通过全部前置关卡，详见报告。')) : h(ScoreCard, { score: scores }),
         h(LiveCard, { runId: pickString(detail.runId, runId) }),
         h(ReportCard, { reportMd: reportMd }),
         h(ArtifactsCard, { artifacts: artifacts, runId: pickString(detail.runId, runId) }),
@@ -2041,7 +2194,7 @@ window.__ModuleLoader__.load({
           })),
           h(RunList, {
             platforms: data.platforms || [],
-            runs: runs.filter((run) => platformFilter === 'all' || (run.platform || 'amazon') === platformFilter),
+            runs: runs.filter((run) => platformFilter === 'all' || (run.platform === 'trendyol-sa' ? 'trendyol' : run.platform || 'amazon') === platformFilter),
             onOpen: (runId) => {
               if (isString(runId) && runId !== '') setSelected(runId);
             }
@@ -2219,7 +2372,7 @@ window.__ModuleLoader__.load({
       const providerOptions = state.providers.filter((p) => p.id !== 'sorftime' && (!platform || platform.providers.includes(p.id))).map((p) => ({ value: p.id, label: p.label }));
       const sites = platform?.sites || MARKETPLACES;
       const selectedSite = sites.find(s => s.value === state.marketplace);
-      const siteDescription = state.platform === 'trendyol' ? ('官网启用国家（中文）；当前已接通土耳其、沙特阿拉伯。' + (selectedSite?.captureSupported === false ? '当前所选国家尚未接通抓取，运行会明确拒绝，不会改抓土耳其。' : '当前币种：' + (selectedSite?.currency || '—'))) : t('settings.marketplaceDesc');
+      const siteDescription = state.platform === 'trendyol' ? '仅沙特阿拉伯 SA；计价与利润币种 SAR。' : t('settings.marketplaceDesc');
       const configuredTone = state.providerFailed ? T.error : state.configured ? T.success : T.warn;
       const configuredLabel = state.providerFailed
         ? t('status.failed')
@@ -2397,7 +2550,7 @@ window.__ModuleLoader__.load({
         defaultsCard,
         state.platform === 'amazon' && state.provider === 'sellersprite' ? keyCard : h(Card, null,
           h('strong', null, '网页数据源 · 无需密钥'),
-          h('p', { style: S.muted }, state.platform === 'trendyol' ? '土耳其：Chrome 打开 www.trendyol.com（TRY）；沙特阿拉伯：打开 www.trendyol.sa/en（SAR）。抓取前核验国家和币种；沙特用评价数（含仅评分）代理，不冒充文字评论、月销量、销额或净利润。' : 'Chrome 登录卖家精灵后使用；不会消耗 MCP 额度，但会使用网页查询次数。'))
+          h('p', { style: S.muted }, state.platform === 'trendyol' ? 'Chrome 打开 www.trendyol.sa/en（SAR）。抓取前核验沙特国家与币种；评价数含仅评分，不冒充文字评论、月销量、销额或净利润。' : 'Chrome 登录卖家精灵后使用；不会消耗 MCP 额度，但会使用网页查询次数。'))
       );
     }
 

@@ -20,50 +20,65 @@ async function loadClient() {
       return [initial,()=>{}];
     },
   };
-  const source=(await readFile(new URL('../client.js',import.meta.url),'utf8')).replace('return { name: PLUGIN, inject:', "i18n = createI18n({locale:{bind:()=>key=>key==='runs.site'?'站点 {site}':key}}); return { testApi: { SettingsPage, Panel, RunRow, ProviderNotice, findProvider }, name: PLUGIN, inject:");
+  const source=(await readFile(new URL('../client.js',import.meta.url),'utf8')).replace('return { name: PLUGIN, inject:', "i18n = createI18n({locale:{bind:()=>key=>({'runs.site':'站点 {site}','runs.productSelection':'单品筛选'}[key]||key)}}); return { testApi: { SettingsPage, Panel, RunRow, ProviderNotice, findProvider, groupRunsByCategory }, name: PLUGIN, inject:");
   runInNewContext(source,{window:{__ModuleLoader__:{load:({factory})=>{api=factory(()=>React).testApi;}}},document:{baseURI:'http://127.0.0.1:55484/'},URL,console,AbortController,setTimeout,clearTimeout});
   return {api,getState:()=>state,setOverview:(v)=>{overview=v;}};
 }
 function nodes(tree){return tree && typeof tree==='object'?[tree,...(tree.children||[]).flatMap(nodes)]:[];}
 const byId=(tree,id)=>nodes(tree).find(n=>n.props.id===id);
 
-test('client settings platform change updates provider and sites without requiring a key',async()=>{
+test('client settings retain Amazon US keys and non-SA sites; Trendyol exposes only SA without key',async()=>{
   const {api,getState}=await loadClient();
   let view=api.SettingsPage();
   assert.ok(byId(view,'amz-key'));
+  assert.equal(getState().platform,'amazon');assert.equal(getState().marketplace,'US');
+  assert.deepEqual(Array.from(byId(view,'research-platform').props.options,o=>o.value),['amazon','trendyol']);
+  assert.deepEqual(Array.from(byId(view,'amz-marketplace').props.options,o=>o.value),['US','UK','DE','FR','IT','ES','CA','JP','MX','AU','IN','AE','BR']);
+  assert.deepEqual(Array.from(byId(view,'research-provider').props.options,o=>o.value),['sellersprite','sellersprite-web']);
   byId(view,'research-platform').props.onChange({target:{value:'trendyol'}});
-  assert.equal(getState().provider,'trendyol-web');assert.equal(getState().marketplace,'TR');
+  assert.equal(getState().provider,'trendyol-web');assert.equal(getState().marketplace,'SA');
   view=api.SettingsPage();
   assert.equal(byId(view,'amz-key'),undefined);
   assert.deepEqual(Array.from(byId(view,'research-provider').props.options,o=>o.value),['trendyol-web']);
   const sites = Array.from(byId(view,'amz-marketplace').props.options);
-  assert.equal(sites.length,39);
-  assert.equal(sites.find(s=>s.value==='SA').label,'沙特阿拉伯');
-  assert.match(sites.find(s=>s.value==='DE').label,/抓取待接通/);
-  assert.ok(sites.every(s=>/[\u4e00-\u9fff]/.test(s.label)));
-  assert.ok(!sites.some(s=>s.value==='US'));
-  byId(view,'amz-marketplace').props.onChange({target:{value:'SA'}});
-  assert.equal(getState().marketplace,'SA');
+  assert.equal(sites.length,1);
+  assert.equal(sites[0].value,'SA');assert.equal(sites[0].label,'沙特阿拉伯');
   byId(view,'research-platform').props.onChange({target:{value:'amazon'}});
-  view=api.SettingsPage();
-  assert.equal(getState().provider,'sellersprite');assert.equal(getState().marketplace,'US');assert.ok(byId(view,'amz-key'));
-  assert.ok(byId(view,'research-provider').props.options.every(o=>o.value!=='trendyol-web'&&o.value!=='sorftime'));
+  assert.equal(getState().platform,'amazon');assert.equal(getState().marketplace,'US');
+  assert.equal(getState().provider,'sellersprite');assert.ok(byId(api.SettingsPage(),'amz-key'));
 });
 
-test('client history filters platform but keeps legacy Amazon records and correct active provider',async()=>{
+test('client groups runs into collapsible first- and second-level categories',async()=>{
+  const {api}=await loadClient();
+  const groups=api.groupRunsByCategory([
+    {runId:'locks',title:'Cabinet Locks (橱柜锁)',kind:'category'},
+    {runId:'edge',title:'Edge & Corner Guards',kind:'category'},
+    {runId:'hardware',title:'Cabinet Hardware (橱柜硬件)',kind:'category'},
+    {runId:'tk',title:'vibedor · tiktok-shop',kind:'selection'},
+  ]);
+  assert.equal(groups[0].label,'Baby Products');
+  assert.equal(groups[0].count,2);
+  assert.equal(groups[0].children[0].label,'Safety');
+  assert.deepEqual(Array.from(groups[0].children[0].runs,r=>r.runId),['locks','edge']);
+  assert.equal(groups[1].label,'Tools & Home Improvement');
+  assert.equal(groups[1].children[0].label,'Hardware');
+  assert.equal(groups[2].label,'单品筛选');
+  assert.equal(groups[2].children[0].label,'tiktok-shop');
+});
+
+test('client history preserves legacy Amazon and all historical runs with platform filtering',async()=>{
   const {api,setOverview}=await loadClient();
-  const overview={config:{platform:'trendyol',provider:'trendyol-web'},platforms:listPlatforms(),providers:[{id:'sellersprite'},{id:'trendyol-web',label:'Trendyol'}],runs:[{runId:'old'},{runId:'tr',platform:'trendyol'}]};
+  const overview={config:{platform:'trendyol',provider:'trendyol-web'},platforms:listPlatforms(),providers:[{id:'sellersprite'},{id:'trendyol-web',label:'Trendyol.sa'}],runs:[{runId:'old'},{runId:'tr',platform:'trendyol',site:'TR'},{runId:'sa',platform:'trendyol',site:'SA'},{runId:'workflow',platform:'trendyol-sa'}]};
   setOverview(overview);
   assert.equal(api.findProvider(overview).id,'trendyol-web');
-  let view=api.Panel();
-  const list=(tree)=>nodes(tree).find(n=>n.type?.name==='RunList').props.runs;
-  assert.equal(list(view).length,2);
-  byId(view,'research-history-platform').props.onChange({target:{value:'trendyol'}});
-  view=api.Panel();assert.equal(list(view).length,1);assert.equal(list(view)[0].runId,'tr');
-  byId(view,'research-history-platform').props.onChange({target:{value:'amazon'}});
-  view=api.Panel();assert.equal(list(view)[0].runId,'old');
-  const row=api.RunRow({run:{runId:'tr',platform:'trendyol',site:'TR'}});
-  assert.ok(JSON.stringify(row).includes('Trendyol'));
+  const view=api.Panel();
+  const list=nodes(view).find(n=>n.type?.name==='RunList').props.runs;
+  assert.deepEqual(Array.from(list,r=>r.runId),['old','tr','sa','workflow']);
+  const filter=byId(view,'research-history-platform');assert.ok(filter);
+  filter.props.onChange({target:{value:'amazon'}});
+  assert.deepEqual(Array.from(nodes(api.Panel()).find(n=>n.type?.name==='RunList').props.runs,r=>r.runId),['old']);
+  filter.props.onChange({target:{value:'trendyol'}});
+  assert.deepEqual(Array.from(nodes(api.Panel()).find(n=>n.type?.name==='RunList').props.runs,r=>r.runId),['tr','sa','workflow']);
   const sa=api.RunRow({run:{runId:'sa',platform:'trendyol',site:'SA'},platforms:listPlatforms()});
   assert.ok(JSON.stringify(sa).includes('沙特阿拉伯'));
 });

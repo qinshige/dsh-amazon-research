@@ -62,6 +62,34 @@ test('listRunsMulti：跨多个根目录聚合且去重', async () => {
   });
 });
 
+test('运行摘要：透传一二级类目与渠道字段供折叠分组', async () => {
+  await withDir(async (dir) => {
+    const root = join(dir, 'runs');
+    const runId = '20261117_Cabinet_Locks_US';
+    const runDir = join(root, runId);
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, 'manifest.json'), JSON.stringify({
+      runId,
+      title: 'Cabinet Locks',
+      kind: 'category',
+      site: 'US',
+      provider: 'sellersprite-web',
+      nodeIdPath: '165796011:166863011:24254177011:24254178011',
+      categoryPath: 'Baby Products › Safety › Guards & Locks › Cabinet Locks',
+      categoryLevels: ['Baby Products', 'Safety', 'Guards & Locks', 'Cabinet Locks'],
+      category: 'Cabinet Locks',
+      channel: 'amazon-fba',
+      createdAt: '2026-11-17T01:00:00.000Z',
+    }));
+    const [run] = await listRunsMulti([root], { limit: 10 });
+    assert.equal(run.categoryPath, 'Baby Products › Safety › Guards & Locks › Cabinet Locks');
+    assert.deepEqual(run.categoryLevels.slice(0, 2), ['Baby Products', 'Safety']);
+    assert.equal(run.nodeIdPath, '165796011:166863011:24254177011:24254178011');
+    assert.equal(run.category, 'Cabinet Locks');
+    assert.equal(run.channel, 'amazon-fba');
+  });
+});
+
 test('运行登记表：createRun 登记后即使不在候选根目录也能被面板发现', async () => {
   await withDir(async (dir) => {
     const registryDir = join(dir, 'registry');

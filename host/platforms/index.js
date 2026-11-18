@@ -34,7 +34,7 @@ export const PLATFORMS = Object.freeze({
       { value: 'ES', label: '西班牙' },
       { value: 'CA', label: '加拿大' },
       { value: 'JP', label: '日本' },
-      ...['MX','AU','IN','AE','BR','SA'].map((value) => ({ value, label: value })),
+      ...['MX','AU','IN','AE','BR'].map((value) => ({ value, label: value })),
     ]),
     /** 该平台可用的数据源（provider id） */
     providers: Object.freeze(['sellersprite', 'sellersprite-web', 'sorftime']),
@@ -50,16 +50,16 @@ export const PLATFORMS = Object.freeze({
 
   trendyol: Object.freeze({
     id: 'trendyol',
-    label: 'Trendyol',
+    label: 'Trendyol.sa',
     productIdLabel: 'productId',
     categoryPathLabel: 'categoryId',
     rankLabel: '类目畅销排名',
     fulfillmentLabel: 'Trendyol Express',
     selfOperatedLabel: 'Trendyol 自营',
-    currency: 'TRY',
-    currencySymbol: 'TL',
-    defaultSite: 'TR',
-    sites: TRENDYOL_SITES,
+    currency: 'SAR',
+    currencySymbol: 'SAR',
+    defaultSite: 'SA',
+    sites: Object.freeze(TRENDYOL_SITES.filter(site => site.value === 'SA')),
     providers: Object.freeze(['trendyol-web']),
     /** Trendyol 页面不公布销量/销额 → 只能用评论总量做代理 */
     marketSizeBasis: 'review_mass',

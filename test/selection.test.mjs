@@ -173,7 +173,7 @@ test('输入指纹：键顺序不同但内容相同 → 同一指纹', () => {
 test('体检落盘：report.md 含四途径、十维、否决、差异化与追溯', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'dsr-selection-'));
   try {
-    const out = await screenCandidates({
+    const out = await screenCandidates({ liveFx: false, freightPerKgCNY: 18,
       rows: [
         { ...baseRow, 链接: 'https://www.amazon.com/dp/B0TEST0001', '1688链接': 'https://detail.1688.com/offer/1.html', '采集时间': '2026-11-16T12:00:00Z', 来源: 'BS 榜' },
         { ...baseRow, ASIN: 'B0BAD', 变体数: 9 },
@@ -465,8 +465,8 @@ test('决策单：安全边际与首批资金可复算', () => {
 test('报告：保守档有附录教练层，进阶没有', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'dsr-profile-'));
   try {
-    const beginner = await screenCandidates({ rows: [baseRow], outputRoot: dir, title: '新手', profile: 'beginner', reportStyle: 'full' });
-    const operator = await screenCandidates({ rows: [baseRow], outputRoot: dir, title: '进阶', profile: 'operator', reportStyle: 'full' });
+    const beginner = await screenCandidates({ liveFx: false, freightPerKgCNY: 18, rows: [baseRow], outputRoot: dir, title: '新手', profile: 'beginner', reportStyle: 'full' });
+    const operator = await screenCandidates({ liveFx: false, freightPerKgCNY: 18, rows: [baseRow], outputRoot: dir, title: '进阶', profile: 'operator', reportStyle: 'full' });
     const beginnerMd = await readFile(join(beginner.dir, 'report.md'), 'utf8');
     const operatorMd = await readFile(join(operator.dir, 'report.md'), 'utf8');
     assert.match(beginnerMd, /## 附录 A · 补充说明/);
@@ -483,7 +483,7 @@ test('报告：保守档有附录教练层，进阶没有', async () => {
 test('数据版报告（默认）：只有表与数字，不含四途径/教练层/术语/免责声明等叙述', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'dsr-data-'));
   try {
-    const out = await screenCandidates({ rows: [baseRow, { ...baseRow, ASIN: 'B0BAD', 变体数: 9 }], outputRoot: dir, title: '数据版' });
+    const out = await screenCandidates({ liveFx: false, freightPerKgCNY: 18, rows: [baseRow, { ...baseRow, ASIN: 'B0BAD', 变体数: 9 }], outputRoot: dir, title: '数据版' });
     assert.equal(out.reportStyle, 'data');
     const md = await readFile(join(out.dir, 'report.md'), 'utf8');
     // 必须有的数据块

@@ -13,7 +13,7 @@
  * 成本项的**人民币金额**（如 1688 采购价）直接是人民币，不参与汇率折算，
  * 折美元时用成本汇率。
  *
- * 实时汇率：可选从公开汇率接口取，取不到就回落到默认值并在报告里标注「默认值」。
+ * 实时汇率：默认获取公开接口最新公布值（不等于逐笔市场报价），失败回落默认值并标注来源。
  */
 
 export const DEFAULT_COST_FX = 6.7;
@@ -27,13 +27,14 @@ export const FX_SOURCE = Object.freeze({
 });
 
 function positive(value, fallback) {
+  if (!['number', 'string'].includes(typeof value)) return fallback;
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 /**
  * 归一化汇率配置。
- * @param {{costFx?:number, settleFx?:number, costFxSource?:string, settleFxSource?:string, fetchedAt?:string}} input
+ * @param {{costFx?:number, settleFx?:number, costFxSource?:string, settleFxSource?:string, fetchedAt?:string, dataDate?:string, endpoint?:string}} input
  */
 export function resolveFx(input = {}) {
   const costFx = positive(input.costFx, DEFAULT_COST_FX);
@@ -41,38 +42,64 @@ export function resolveFx(input = {}) {
   return {
     costFx,
     settleFx,
-    costFxSource: input.costFxSource || (input.costFx ? FX_SOURCE.manual.id : FX_SOURCE.default.id),
-    settleFxSource: input.settleFxSource || (input.settleFx ? FX_SOURCE.manual.id : FX_SOURCE.default.id),
+    costFxSource: positive(input.costFx, null) === null ? FX_SOURCE.default.id : (FX_SOURCE[input.costFxSource]?.id || FX_SOURCE.manual.id),
+    settleFxSource: positive(input.settleFx, null) === null ? FX_SOURCE.default.id : (FX_SOURCE[input.settleFxSource]?.id || FX_SOURCE.manual.id),
     fetchedAt: input.fetchedAt || null,
+    dataDate: input.dataDate || null,
+    endpoint: input.endpoint || null,
   };
 }
 
 /**
  * 从公开接口取实时汇率（USD/CNY）。
  * 失败返回 null（不抛错），由调用方回落默认值。
- * @param {{timeoutMs?:number, fetchImpl?:Function}} options
+ * @param {{timeoutMs?:number, fetchImpl?:Function, retries?:number}} options
  */
-export async function fetchLiveFx({ timeoutMs = 6000, fetchImpl = null } = {}) {
+export async function fetchLiveFx({ timeoutMs = 6000, fetchImpl = null, retries = 1 } = {}) {
   const doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null);
   if (!doFetch) return null;
   const endpoints = [
     'https://open.er-api.com/v6/latest/USD',
     'https://api.frankfurter.app/latest?from=USD&to=CNY',
   ];
+  // 每次尝试的期限覆盖连接、响应头与响应体；即使注入的 fetch 忽略 abort 也能返回。
+  const attempts = Number.isInteger(retries) && retries >= 0 ? Math.min(retries, 3) : 1;
+  const deadline = positive(timeoutMs, 6000);
   for (const url of endpoints) {
-    try {
+    for (let attempt = 0; attempt <= attempts; attempt += 1) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      const response = await doFetch(url, { signal: controller.signal });
-      clearTimeout(timer);
-      if (!response || !response.ok) continue;
-      const data = await response.json();
-      const rate = Number(data?.rates?.CNY ?? data?.rates?.cny);
-      if (Number.isFinite(rate) && rate > 0) {
-        return { rate: Number(rate.toFixed(4)), fetchedAt: new Date().toISOString(), source: url };
+      let timer;
+      try {
+        const timeout = new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            reject(new Error('汇率请求超时'));
+          }, deadline);
+        });
+        const data = await Promise.race([
+          (async () => {
+            const response = await doFetch(url, { signal: controller.signal });
+            if (!response?.ok) throw new Error('HTTP ' + response?.status);
+            return await response.json();
+          })(),
+          timeout,
+        ]);
+        const rate = positive(data?.rates?.CNY ?? data?.rates?.cny, null);
+        if (rate === null || (data?.result && data.result !== 'success') ||
+            ((data?.base_code ?? data?.base) && (data.base_code ?? data.base) !== 'USD')) {
+          throw new Error('响应里没有有效 USD/CNY 汇率');
+        }
+        // 日期仅来自接口，缺失时不拿抓取日期冒充报价日期。
+        const unix = positive(data?.time_last_update_unix, null);
+        const published = unix !== null ? new Date(unix * 1000) :
+          new Date(data?.date || data?.time_last_update_utc || NaN);
+        const dataDate = Number.isFinite(published.getTime()) ? published.toISOString().slice(0, 10) : null;
+        return { rate, dataDate, fetchedAt: new Date().toISOString(), source: url };
+      } catch {
+        /* 重试或换下一个接口 */
+      } finally {
+        clearTimeout(timer);
       }
-    } catch {
-      /* 换下一个接口 */
     }
   }
   return null;
@@ -87,7 +114,7 @@ export async function fetchLiveFx({ timeoutMs = 6000, fetchImpl = null } = {}) {
  *
  * 为什么需要缓存：一次选品体检会算 228 个候选，每个候选都要用汇率；
  * 不缓存的话就是 228 次网络请求，既慢又容易把汇率接口打挂。
- * 缓存有效期默认 30 分钟 —— 汇率日内波动很小，30 分钟足够新鲜。
+ * 默认最多缓存 30 分钟；cacheTtlMs: 0 强制重新取数，缓存保留原抓取日期与数据日期。
  */
 const liveCache = { value: null, expiresAt: 0 };
 
@@ -105,7 +132,7 @@ export function clearFxCache() {
  *   - 手动传入 costFx / settleFx → 以手动值为准，来源标 manual；
  *   - 取不到实时汇率 → 回落默认值（成本 6.7 / 结算 6.6），来源标 default，**不报错**。
  *
- * @param {{live?:boolean, costFx?:number, settleFx?:number, fetchImpl?:Function, timeoutMs?:number, cacheTtlMs?:number}} options
+ * @param {{live?:boolean, costFx?:number, settleFx?:number, fetchImpl?:Function, timeoutMs?:number, cacheTtlMs?:number, retries?:number}} options
  */
 export async function getFx(options = {}) {
   const manualCost = positive(options.costFx, null);
@@ -134,13 +161,13 @@ export async function getFx(options = {}) {
   const ttl = Number.isFinite(Number(options.cacheTtlMs)) ? Number(options.cacheTtlMs) : 30 * 60 * 1000;
   const now = Date.now();
   let liveRate = null;
-  if (!options.fetchImpl && liveCache.value && liveCache.expiresAt > now) {
+  if (ttl > 0 && !options.fetchImpl && liveCache.value && liveCache.expiresAt > now) {
     liveRate = liveCache.value;
   } else {
-    liveRate = await fetchLiveFx({ fetchImpl: options.fetchImpl, timeoutMs: options.timeoutMs });
+    liveRate = await fetchLiveFx({ fetchImpl: options.fetchImpl, timeoutMs: options.timeoutMs, retries: options.retries });
     if (liveRate && !options.fetchImpl) {
       liveCache.value = liveRate;
-      liveCache.expiresAt = now + ttl;
+      liveCache.expiresAt = Date.now() + Math.max(0, ttl);
     }
   }
 
@@ -159,6 +186,8 @@ export async function getFx(options = {}) {
     costFxSource: manualCost ? FX_SOURCE.manual.id : FX_SOURCE.live.id,
     settleFxSource: manualSettle ? FX_SOURCE.manual.id : FX_SOURCE.live.id,
     fetchedAt: liveRate.fetchedAt,
+    dataDate: liveRate.dataDate,
+    endpoint: liveRate.source,
   });
 }
 

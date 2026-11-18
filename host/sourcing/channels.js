@@ -19,22 +19,24 @@ export const CHANNEL_MODELS = Object.freeze({
     platform: 'amazon',
     /** 履约方式：fba = 按重量档位表；fbm = 自发货（无平台配送费）；cross = 跨境直发物流 */
     fulfillment: 'fba',
+    /** 平台佣金：Amazon 美国站按类目 8%~17%（工具/家居 15%）。默认取成本口径档的值。 */
     referralRate: 0.15,
     adRate: 0.10,
     returnRate: 0.05,
-    otherUSD: 0.35,
-    /** 跨境/头程：¥/kg */
-    firstMilePerKgCNY: 35,
+    /** 其它费用：用户口径暂不计 */
+    otherUSD: 0,
+    /** 头程兜底费率（¥/kg）：优先用实时运价（freight.js） */
+    firstMilePerKgCNY: 18,
     /** 跨境直发：每件基础 + 每 kg */
     fulfillmentBaseUSD: 0,
     fulfillmentPerKgUSD: 0,
     /** 价格带参考（稳态区间） */
     priceBand: { min: 15, max: 45 },
     notes: [
-      '平台佣金 15%（工具/家居 15%，工业科学 12%，服饰 17%，美妆电子 8%）',
+      'Amazon 美国站平台佣金按类目 8%~17%（工具/家居 15%、工业科学 12%、服饰 17%、美妆电子 8%）',
       'FBA 配送费按件重档位估算：小号标准 ≤4oz $3.22 起',
-      '头程 ¥35/kg（海运 + 贴标 + 操作摊销）',
-      '广告 10%、退货损耗 5%、仓储/其它 $0.35',
+      '头程按实时运价折算（海运/空运，见 freight.js）',
+      '广告 10%、退货损耗 5%、其它费用按用户口径暂不计',
     ],
   }),
   'amazon-fbm': Object.freeze({
@@ -43,10 +45,10 @@ export const CHANNEL_MODELS = Object.freeze({
     platform: 'amazon',
     fulfillment: 'fbm',
     referralRate: 0.15,
-    adRate: 0.12,
+    adRate: 0.10,
     returnRate: 0.05,
-    otherUSD: 0.15,
-    firstMilePerKgCNY: 35,
+    otherUSD: 0,
+    firstMilePerKgCNY: 18,
     fulfillmentBaseUSD: 0,
     fulfillmentPerKgUSD: 0,
     priceBand: { min: 15, max: 80 },
@@ -61,12 +63,12 @@ export const CHANNEL_MODELS = Object.freeze({
     label: 'TikTok Shop 美国站（跨境直发）',
     platform: 'tiktok',
     fulfillment: 'cross',
-    /** 平台佣金 6%（TikTok Shop 美国站 2026-10 费率表，多数类目） */
+    /** 平台佣金 6%（用户测算口径，非官方费率声明） */
     referralRate: 0.06,
-    /** 达人带货佣金 / 广告合并按 12% 估 */
-    adRate: 0.12,
-    /** TK 冲动消费退货率高于 Amazon，按 8% 估 */
-    returnRate: 0.08,
+    /** 广告占比：按用户口径 10% */
+    adRate: 0.10,
+    /** 退货损耗：按用户口径 5% */
+    returnRate: 0.05,
     otherUSD: 0,
     /** 跨境直发：头程并入履约，不再单算 */
     firstMilePerKgCNY: 0,
@@ -75,9 +77,9 @@ export const CHANNEL_MODELS = Object.freeze({
     fulfillmentPerKgUSD: 8,
     priceBand: { min: 8, max: 25 },
     notes: [
-      '平台佣金 6%（TikTok Shop 美国站 2026-10 费率表，多数类目）',
+      '平台佣金 6%（用户测算口径，非官方费率声明）',
       '无 FBA 配送费；履约 = 跨境直发物流（默认 $2.20/件 + $8/kg 估算值）',
-      '达人带货佣金/广告按 12% 估；冲动消费退货率按 8% 估',
+      '广告 10%、退货 5%（用户口径）',
       '无 Amazon 仓储费与长期仓储费',
     ],
   }),

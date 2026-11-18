@@ -57,16 +57,24 @@ test('parseProductId / parseBadges / formatBreadcrumb', () => {
 
 // ─────────────────────────────────────────────── 平台注册表
 
-test('平台注册表：amazon 与 trendyol 的 provider 隔离', () => {
-  const ids = listPlatforms().map((p) => p.id);
-  assert.deepEqual(ids, ['amazon', 'trendyol']);
+test('公开平台注册表保留Amazon非SA站点，沙特仅Trendyol.sa', () => {
+  assert.deepEqual(listPlatforms().map((p) => p.id), ['amazon', 'trendyol']);
+  assert.equal(getPlatform('amazon').defaultSite, 'US');
+  const amazonSites = ['US','UK','DE','FR','IT','ES','CA','JP','MX','AU','IN','AE','BR'];
+  assert.deepEqual(getPlatform('amazon').sites.map(s => s.value), amazonSites);
+  for (const site of amazonSites) assert.equal(resolveSite('amazon', site), site);
+  assert.equal(resolveSite('amazon', 'SA'), null);
+  assert.equal(resolveSite('amazon'), 'US');
+  assert.deepEqual(providersForPlatform('amazon'), ['sellersprite','sellersprite-web','sorftime']);
   assert.equal(providerSupportsPlatform('sellersprite', 'amazon'), true);
-  assert.equal(providerSupportsPlatform('sellersprite', 'trendyol'), false, '卖家精灵只支持 Amazon');
+  assert.equal(providerSupportsPlatform('trendyol-web', 'amazon'), false);
+  assert.equal(providerSupportsPlatform('sellersprite', 'trendyol'), false);
   assert.equal(providerSupportsPlatform('trendyol-web', 'trendyol'), true);
   assert.deepEqual(providersForPlatform('trendyol'), ['trendyol-web']);
-  assert.equal(getPlatform('trendyol').currencySymbol, 'TL');
-  assert.equal(resolveSite('trendyol', 'tr'), 'TR');
-  assert.equal(resolveSite('trendyol', 'US'), null, 'Trendyol 没有 US 站');
+  assert.equal(getPlatform('trendyol').currencySymbol, 'SAR');
+  assert.equal(resolveSite('trendyol', 'sa'), 'SA');
+  assert.equal(resolveSite('trendyol'), 'SA');
+  for (const site of ['TR', 'US', 'DE']) assert.equal(resolveSite('trendyol', site), null);
 });
 
 test('Providers.list 带 platforms 声明，listForPlatform 只返回该平台可用的', () => {

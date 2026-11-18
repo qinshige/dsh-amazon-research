@@ -5,11 +5,20 @@ import { selectCategoryWeb } from './category-web.js';
 import { selectCategoryTrendyol } from './category-trendyol.js';
 import { getPlatform, providerSupportsPlatform, providersForPlatform, resolveSite } from './platforms/index.js';
 import { judgeProfit, landedCost, pickTierPrice } from './sourcing/cost-model.js';
+import { getFx } from './fx.js';
+import { getFreight } from './sourcing/freight.js';
+import { resolveCostProfile } from './sourcing/cost-profile.js';
 import { buildSelectionPlan } from './selection/channels.js';
+import { buildMacroPlan, runMacroAnalysis } from './market/macro.js';
 import { parseCsv, screenCandidates } from './selection/pipeline.js';
 import { productsToSelectionRows } from './selection/from-products.js';
 import { attachToRun, beginSession, endSession, push as livePush } from './live.js';
 import { join } from 'node:path';
+import { saOnlyTools } from './market/sa-tools.js';
+
+export function createTools(deps) {
+  return saOnlyTools(createLegacyTools(deps), deps);
+}
 
 const OUTPUT_SCHEMA = {
   type: 'object',
@@ -19,6 +28,43 @@ const OUTPUT_SCHEMA = {
 };
 
 const LIVE_SESSION_DIR = '.live';
+
+// Keep both cost tools' public contract and screen/collect forwarding identical.
+const COST_PARAMETERS = {
+  fx: { type: 'number', exclusiveMinimum: 0, description: '成本汇率的兼容别名（1 USD = ? CNY）；costFx 优先' },
+  costFx: { type: 'number', exclusiveMinimum: 0, description: '手动成本汇率；不传则取实时值，失败回落 6.7' },
+  settleFx: { type: 'number', exclusiveMinimum: 0, description: '手动结算汇率；不传则取实时值，失败回落 6.6' },
+  liveFx: { type: 'boolean', default: true, description: '是否取实时汇率；来源与抓取时间随结果返回' },
+  costProfile: {
+    type: 'object',
+    description: '用户成本口径：广告 10%、退货 5%、佣金 6%、其它 0；并非平台统一费率，Amazon 请按实际类目覆盖佣金',
+    properties: {
+      adRate: { type: 'number', minimum: 0, maximum: 1, default: 0.10 },
+      returnRate: { type: 'number', minimum: 0, maximum: 1, default: 0.05 },
+      referralRate: { type: 'number', minimum: 0, maximum: 1, default: 0.06 },
+      otherUSD: { type: 'number', minimum: 0, default: 0 },
+      freightMode: { type: 'string', enum: ['sea', 'air', 'express'] },
+    },
+    additionalProperties: false,
+  },
+  freightMode: { type: 'string', enum: ['sea', 'air', 'express'], description: '运输方式，优先于 costProfile.freightMode；默认 sea' },
+  freightPerKgCNY: { type: 'number', exclusiveMinimum: 0, description: '用户确认的运价 CNY/kg，优先于实时接口；未取到不补零或估算' },
+  freightApiUrl: { type: 'string', description: '货代运价接口 URL；不传则取插件 freight.apiUrl 配置，缺运价不计算净利' },
+};
+
+function costOptions(args, config) {
+  const positive = (value) => typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+  return {
+    fx: positive(args?.fx),
+    costFx: positive(args?.costFx) ?? positive(args?.fx),
+    settleFx: positive(args?.settleFx),
+    liveFx: args?.liveFx !== false,
+    costProfile: args?.costProfile && typeof args.costProfile === 'object' && !Array.isArray(args.costProfile) ? args.costProfile : {},
+    freightMode: asString(args?.freightMode) || undefined,
+    freightPerKgCNY: positive(args?.freightPerKgCNY),
+    freightApiUrl: asString(args?.freightApiUrl) || asString(config?.freight?.apiUrl) || undefined,
+  };
+}
 
 /**
  * 跑一段会驱动浏览器的流程，并把过程写进实时会话（面板可实时看）。
@@ -118,7 +164,7 @@ async function loadSourcing() {
  * 注册模型可见的工具。
  * @param {{ctx:any, dataDir:string, secrets:any, providers:any, version:string}} deps
  */
-export function createTools({ ctx, dataDir, secrets, providers, version }) {
+function createLegacyTools({ ctx, dataDir, secrets, providers, version }) {
   return [
     {
       name: 'research_provider_status',
@@ -179,7 +225,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           },
           category: { type: 'string', description: '类目关键词（英文更准），如 "Cell Phones"、"Sofas"；Trendyol TR 用土耳其语如 "tencere"；SA 用英文如 "cup holder"' },
           nodeIdPath: { type: 'string', description: '类目节点路径，如 "11091801:11974521:8882489011"；知道节点时优先传，能避免类目搜错' },
-          marketplace: { type: 'string', description: '国家代码；默认取当前平台配置。Trendyol 官网国家均可识别，当前抓取只接通 TR / SA，其他返回 UNSUPPORTED_SITE', enum: [...new Set(['amazon','trendyol'].flatMap(id => getPlatform(id).sites.map(s => s.value)))] },
+          marketplace: { type: 'string', description: '国家代码；默认取当前平台配置。Trendyol 官网国家均可识别，当前抓取只接通 TR / SA，其他返回 UNSUPPORTED_SITE', enum: [...new Set(['amazon','trendyol'].flatMap(id => (getPlatform(id)?.sites || []).map(s => s.value)))] },
           limit: { type: 'integer', minimum: 10, maximum: 100, description: '样本商品数上限，默认 50；Trendyol 不是页数' },
           pages: { type: 'integer', minimum: 1, maximum: 5, description: 'Trendyol 搜索页数，默认2；Amazon 不使用' },
           detailTopN: { type: 'integer', minimum: 0, maximum: 5, description: 'Trendyol 商品详情请求上限，默认5，可设0' },
@@ -400,13 +446,15 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
         '1688 采价 + 全成本落地测算：按子市场关键词搜索 1688 货源、逐条进详情页验证采购价 / 阶梯价 / 起批量 / 件重，再按「采购 + 头程 + FBA + 佣金 + 广告 + 退货 + 其它」测算单件净利与净利率。',
         '⚠️ 会打开 1688 页面并消耗网页端查询次数：每个关键词 1 次搜索页，每个进详情页验证的 offer 再加 1 次页面请求。调用前请先向用户说明会占用网页端查询次数。',
         '利润口径 = 净利率（扣完佣金 / 广告 / 退货 / 其它），与上游五维的「毛利率」口径（只扣采购成本）不可直接比较；红线：净利率 > 25% 才考虑，体量小（100-200 单）需 > 30%，物流占售价 10%-15%、>20% 提示放弃。',
-        '⚠️ 当前只支持 Amazon FBA 成本模型（佣金 15% + FBA 配送费按件重档）；TikTok Shop 请用 research_product_select 的 channel=tiktok-shop（佣金 6%、无 FBA 费、跨境直发物流）。',
+        '⚠️ 当前只支持 Amazon FBA 配送模型（FBA 配送费按件重档估算）；默认用户口径为佣金 6%、广告 10%、退货 5%、其它 0，不代表 Amazon 标准费率，请用 costProfile 按实际类目覆盖。TikTok Shop 请用 research_product_select 的 channel=tiktok-shop。',
         '调用时机：用户要做「全成本落地测算 / 净利率口径的利润维度评分」，或问「这个品到底赚不赚钱」时。',
         '输出 { ok, offers, profit, warnings, fetchedAt }；采购价只取 1688 页面真实文本（未进详情页的只给搜索页卡片价并标注），抓不到就写「未取到」，不做估算填充。',
       ].join('\n'),
       parameters: {
         type: 'object',
         properties: {
+          ...COST_PARAMETERS,
+          outDir: { type: 'string', description: '输出根目录；不传用插件配置' },
           category: { type: 'string', description: '类目关键词（中文或英文），仅作上下文标注' },
           subMarkets: {
             type: 'array',
@@ -460,9 +508,23 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
         if (sourcing.error) return sourcing.error;
         const source = sourcing.module;
 
+        const options = costOptions(args, config);
+        const profileCfg = resolveCostProfile({
+          ...options.costProfile,
+          ...(options.freightMode ? { freightMode: options.freightMode } : {}),
+        });
+        const fxCfg = await getFx({ live: options.liveFx, costFx: options.costFx, settleFx: options.settleFx });
+        const freightCfg = await getFreight({
+          mode: options.freightMode || profileCfg.freightMode,
+          perKgCNY: options.freightPerKgCNY,
+          apiUrl: options.freightApiUrl,
+          live: Boolean(options.freightApiUrl),
+        });
         const offers = [];
         const profit = [];
         const warnings = [];
+        if (!(freightCfg?.perKgCNY > 0)) warnings.push('头程运价未取到：请提供 freightPerKgCNY 或可用 freightApiUrl；不以零或估算值计算净利。');
+        if (profileCfg.referralRate === 0.06) warnings.push('佣金 6% 为用户成本口径，不代表 Amazon 类目标准费率；请按实际费率覆盖 costProfile.referralRate。');
         const sourcingRoot = resolveOutputRoot(config, asString(args?.outDir));
         const sourcingSessionId = 'live-sourcing-' + Date.now();
         await beginSession({ runId: sourcingSessionId, dir: join(sourcingRoot, LIVE_SESSION_DIR, sourcingSessionId), record: false, source: '1688 采价' });
@@ -534,6 +596,10 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
               priceCNY,
               weightG,
               priceUSD: sub.avgPriceUSD,
+              costFx: fxCfg.costFx,
+              settleFx: fxCfg.settleFx,
+              profile: profileCfg,
+              freight: freightCfg,
               sources: {
                 purchase: '实测值',
                 weight: weightG === null ? '未取到' : '实测值',
@@ -587,6 +653,9 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           ok: true,
           offers,
           profit,
+          costProfile: profileCfg,
+          fx: fxCfg,
+          freight: freightCfg,
           warnings,
           fetchedAt: new Date().toISOString(),
         };
@@ -623,10 +692,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           csv: { type: 'string', description: 'screen 用：CSV 文本（与 rows 二选一），首行表头' },
           productLimit: { type: 'integer', minimum: 10, maximum: 100, description: 'collect 用：抓多少个 Top 商品，默认 50' },
           thenScreen: { type: 'boolean', description: 'collect 用：采集完直接体检并出报告（默认 true）' },
-          fx: { type: 'number', description: '成本汇率（1 USD = ? CNY），默认 6.7（人民币成本折美元）' },
-          costFx: { type: 'number', description: '成本汇率（1 USD = ? CNY），默认 6.7；把 1688 采购价等人民币成本折成美元时用' },
-          settleFx: { type: 'number', description: '结算汇率（1 USD = ? CNY），默认 6.6；把美元收入/利润折成人民币结算时用' },
-          liveFx: { type: 'boolean', description: '是否取实时汇率（默认 true；取不到自动回落默认值 6.7/6.6 并在报告标注来源）' },
+          ...COST_PARAMETERS,
           title: { type: 'string', description: '报告标题，默认用 category 或「选品体检」' },
           source: { type: 'string', description: '候选来源标注，如「BS 榜 / 竞品店铺 / 手动采集」' },
           channel: {
@@ -715,10 +781,7 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
               rows,
               title: asString(args?.title) || (market && market.label) || '选品体检',
               marketplace,
-              fx: typeof args?.fx === 'number' && Number.isFinite(args.fx) && args.fx > 0 ? args.fx : 6.7,
-              costFx: typeof args?.costFx === 'number' && Number.isFinite(args.costFx) && args.costFx > 0 ? args.costFx : null,
-              settleFx: typeof args?.settleFx === 'number' && Number.isFinite(args.settleFx) && args.settleFx > 0 ? args.settleFx : null,
-              liveFx: args?.liveFx !== false,
+              ...costOptions(args, config),
               outputRoot,
               dataDir,
               source: collected.source,
@@ -751,18 +814,12 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
         }
 
         const plan = (category || nodeIdPath || keyword) ? buildSelectionPlan(planInput) : null;
-        const fx = typeof args?.fx === 'number' && Number.isFinite(args.fx) && args.fx > 0 ? args.fx : 6.7;
-        const costFx = typeof args?.costFx === 'number' && Number.isFinite(args.costFx) && args.costFx > 0 ? args.costFx : null;
-        const settleFx = typeof args?.settleFx === 'number' && Number.isFinite(args.settleFx) && args.settleFx > 0 ? args.settleFx : null;
         try {
           const result = await screenCandidates({
             rows,
             title: asString(args?.title) || category || '选品体检',
             marketplace,
-            fx,
-            costFx,
-            settleFx,
-            liveFx: args?.liveFx !== false,
+            ...costOptions(args, config),
             outputRoot,
             dataDir,
             source: asString(args?.source) || 'research_product_select',
@@ -775,6 +832,88 @@ export function createTools({ ctx, dataDir, secrets, providers, version }) {
           return { ...result, action };
         } catch (error) {
           return err(typeof error?.code === 'string' ? error.code : 'SELECTION_FAILED', String(error?.message ?? error));
+        }
+      },
+    },
+    {
+      name: 'research_market_macro',
+      description: [
+        '沙特四平台宏观研究与差异化选品（不依赖卖家精灵）：Temu / AliExpress / Amazon.sa / Trendyol.sa 的平台体量与近两年 GMV 可得性、地区消费占比、人群画像与消费习惯，输出类目差异化矩阵与 做/小批量测/先补数/不做 决策单。',
+        'action=plan：返回四平台口径（谁公开沙特 GMV、谁用什么需求代理）、公开来源清单、四层采集动作、各平台可攻击面、以及可直接填空的输入模板。免费、不联网。',
+        'action=analyze：接收已采集的 gmv / regions / consumer / categories，做口径校验 → 可比性判定 → 差异化矩阵 → 决策单，落盘 report.md / macro.json / provenance.json 与三张 CSV。免费、不联网。',
+        '⚠️ 关键事实：四家平台均不公开「沙特口径 GMV」（母公司只在区域/集团层面披露）。工具不会把区域数字改写成沙特 GMV，也不会把评价数/已售数换算成销量或 GMV；取不到一律写「未取到」。',
+        '⚠️ 只有四个平台同指标、同期间、同口径、同币种齐全时才计算平台份额；不齐全只并列展示。',
+        '采集用 research_page 读前台页面，或人工填表；规格未对齐的样本不参与价差倍数计算。结论不含采购与物流成本，确认可做后接 research_unit_cost 做全成本测算。',
+      ].join('\n'),
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['plan', 'analyze'], description: 'plan=口径与采集路线图（免费）；analyze=用已采集数据出报告（免费）' },
+          market: { type: 'string', enum: ['SA'], description: '市场，目前只有 SA（沙特阿拉伯）' },
+          category: { type: 'string', description: '类目/品类关键词，用于拼各平台搜索链接与报告标题' },
+          platform: { type: 'string', enum: ['amazon-sa', 'temu', 'aliexpress', 'trendyol-sa'], description: 'plan 用：只看某个平台；不传看四个' },
+          gmv: {
+            type: 'array',
+            description: 'analyze 用：规模观测数组。字段 platform/metric/value/period/scope/basis/source/sourceUrl/observedAt/note。scope 必须写明 saudi-total 还是 mena/platform-global',
+            items: { type: 'object', additionalProperties: true },
+          },
+          regions: {
+            type: 'array',
+            description: 'analyze 用：地区占比观测。{platform, region, share(0~1 或百分数), basis, source, observedAt}',
+            items: { type: 'object', additionalProperties: true },
+          },
+          consumer: {
+            type: 'object',
+            description: 'analyze 用：按平台 id 给人群画像。{age:[{band,share}], gender:[...], income:[...], device:[...], payment:[...], habit, delivery, season, language, source, observedAt, sample}',
+            additionalProperties: true,
+          },
+          categories: {
+            type: 'array',
+            description: 'analyze 用：类目样本。{name, useCase, platforms: {<platformId>: {priceSAR, ratingCount|soldLowerBound, rating, spec, sponsored, url}}}；spec 相同的样本才参与价差计算',
+            items: { type: 'object', additionalProperties: true },
+          },
+          title: { type: 'string', description: '报告标题' },
+          source: { type: 'string', description: '数据来源标注，如「浏览器前台采集 + 财报区域口径」' },
+          outDir: { type: 'string', description: '报告输出根目录；不传用插件配置' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      output: { schema: OUTPUT_SCHEMA, render: renderJson },
+      isConcurrencySafe: () => false,
+      async execute(args) {
+        const config = await readConfig(dataDir);
+        const outputRoot = resolveOutputRoot(config, asString(args?.outDir));
+        const action = asString(args?.action) || 'plan';
+        const market = (asString(args?.market) || 'SA').toUpperCase();
+        if (market !== 'SA') return err('INVALID_ARGS', '目前只支持 SA（沙特阿拉伯）', 'market 传 SA');
+        if (action === 'plan') {
+          return {
+            ok: true,
+            action,
+            outputRoot,
+            ...buildMacroPlan({ market, category: asString(args?.category), platform: asString(args?.platform) }),
+          };
+        }
+        if (action !== 'analyze') {
+          return err('INVALID_ARGS', '未知 action：' + action, '可选值：plan / analyze');
+        }
+        try {
+          const result = await runMacroAnalysis({
+            market,
+            gmv: Array.isArray(args?.gmv) ? args.gmv : [],
+            regions: Array.isArray(args?.regions) ? args.regions : [],
+            consumer: args?.consumer && typeof args.consumer === 'object' ? args.consumer : {},
+            categories: Array.isArray(args?.categories) ? args.categories : [],
+            title: asString(args?.title),
+            source: asString(args?.source),
+            outputRoot,
+            dataDir,
+            registryDir: dataDir,
+          });
+          return jsonSafe({ ok: true, action, outputRoot, ...result });
+        } catch (error) {
+          return err(typeof error?.code === 'string' ? error.code : 'MACRO_FAILED', String(error?.message ?? error));
         }
       },
     },

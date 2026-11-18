@@ -126,7 +126,15 @@ function planSection(plan) {
  * 渲染选品体检报告。
  * @param {{title:string, marketplace:string, generatedAt:string, batch:object, plan?:object, source?:string, fx?:number}} params
  */
-export function renderSelectionReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, plan = null, source = '手动/采集表', fx = 6.7, costFx = null, settleFx = 6.6, fxInfo = null, runId = '', inputHash = '', artifacts = [], profile = null, targetMonthlyUnits = null, channel = 'amazon-fba' } = {}) {
+function costDataNotes(fxInfo, freight, costProfile) {
+  const lines = [];
+  if (costProfile) lines.push('> 费用按用户口径：佣金、广告、退货为售价占比；其它暂不计。不是平台官方统一费率。FBA/履约成本仍单独列示；不代表最终完整财务利润。');
+  if (fxInfo) lines.push('> 汇率来源：' + cell(fxInfo.endpoint || '手动/默认值') + '｜接口数据日期：' + cell(fxInfo.dataDate || '未取到') + '｜抓取时间：' + cell(fxInfo.fetchedAt || '未取到') + '（最新公布值，缓存最多30分钟）');
+  if (freight) lines.push('> 头程报价来源：' + cell(freight.endpoint || freight.source) + '｜报价日期：' + cell(freight.quotedAt || '未取到') + '｜抓取时间：' + cell(freight.fetchedAt || '未取到') + '｜' + cell(freight.note || ''));
+  return [...lines, ''];
+}
+
+export function renderSelectionReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, plan = null, source = '手动/采集表', fx = 6.7, costFx = null, settleFx = 6.6, fxInfo = null, costProfile = null, freight = null, runId = '', inputHash = '', artifacts = [], profile = null, targetMonthlyUnits = null, channel = 'amazon-fba' } = {}) {
   const results = batch?.results || [];
   const summary = batch?.summary || { tiers: {}, commonGaps: [], vetoed: 0, needsReview: [], avgMargin: null };
   const lines = [];
@@ -137,6 +145,7 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
   push('# ' + title + ' 选品体检报告（' + marketplace + '）', '');
   push('> 生成时间：' + (generatedAt || '—') + ' ｜ 候选数：' + results.length + ' ｜ 数据来源：' + source + ' ｜ 成本汇率：' + (costFx === null || costFx === undefined ? fx : costFx) + ' ｜ 结算汇率：' + settleFx, '');
   push('> 运行 ID：' + (runId || '—') + ' ｜ 输入指纹：' + (inputHash || '—'), '');
+  push(...costDataNotes(fxInfo, freight, costProfile));
   push('---', '');
 
   // 一、决策摘要与结论
@@ -444,7 +453,13 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
     ['候选来源', source],
     ['站点', marketplace],
     ['生成时间', generatedAt || '—'],
-    ['汇率', '1 USD = ' + fx + ' CNY（估算值，按实际汇率改）'],
+    ['成本汇率', (costFx === null || costFx === undefined ? fx : costFx) + ' CNY/USD（人民币成本折美元）｜来源：' + (fxInfo?.costFxSource || 'default')],
+    ['结算汇率', settleFx + ' CNY/USD（美元收入折人民币结算）｜来源：' + (fxInfo?.settleFxSource || 'default')],
+    ['平台佣金', costProfile ? pct(costProfile.referralRate, 0) + '（用户口径档）' : '-'],
+    ['广告', costProfile ? pct(costProfile.adRate, 0) + '（用户口径档）' : '-'],
+    ['退货损耗', costProfile ? pct(costProfile.returnRate, 0) + '（用户口径档）' : '-'],
+    ['其它费用', costProfile ? (costProfile.otherUSD > 0 ? '$' + costProfile.otherUSD.toFixed(2) : '暂不计') : '-'],
+    ['头程', freight ? freight.label + (freight.perKgCNY == null ? ' 未取到' : ' ¥' + freight.perKgCNY + '/kg') + '｜时效 ' + freight.transitDays + '｜来源 ' + freight.source : '-'],
     ['产物', artifacts.length ? artifacts.map((item) => item.name).join('、') : 'report.md、selection.csv、selection-scores.json、provenance.json、manifest.json'],
   ]));
   push('');
@@ -531,7 +546,7 @@ export function renderSelectionReport({ title = '选品', marketplace = 'US', ge
  * 决策单、安全边际、分档、分段利润、渠道对照、否决依据链、净利率输入、待复核；
  * 去掉的是解释性文字，**不省略任何数字**。
  */
-export function renderDataReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, source = '手动/采集表', fx = 6.7, costFx = null, settleFx = 6.6, fxInfo = null, runId = '', inputHash = '', profile = null, channel = 'amazon-fba' } = {}) {
+export function renderDataReport({ title = '选品', marketplace = 'US', generatedAt = '', batch, source = '手动/采集表', fx = 6.7, costFx = null, settleFx = 6.6, fxInfo = null, costProfile = null, freight = null, runId = '', inputHash = '', profile = null, channel = 'amazon-fba' } = {}) {
   const results = batch?.results || [];
   const summary = batch?.summary || { tiers: {}, decisions: {}, commonGaps: [], vetoed: 0, needsReview: [], avgMargin: null, classRisks: [] };
   const lines = [];
@@ -545,7 +560,17 @@ export function renderDataReport({ title = '选品', marketplace = 'US', generat
   push('| 生成时间 | 候选数 | 成本汇率 | 结算汇率 | 运行 ID | 输入指纹 |', '| --- | --- | --- | --- | --- | --- |');
   push('| ' + cell(generatedAt || '—') + ' | ' + results.length + ' | ' + costRate + '（' + fxSrc(fxInfo?.costFxSource) + '） | ' + settleFx + '（' + fxSrc(fxInfo?.settleFxSource) + '） | ' + cell(runId || '—') + ' | ' + cell(inputHash || '—') + ' |', '');
   push('> 成本汇率用于把人民币成本（1688 采购价、头程）折成美元；结算汇率用于把美元收入与利润折成人民币。人民币口径的利润额按结算汇率计算。', '');
-  if (fxInfo && fxInfo.fetchedAt) push('> 汇率取数时间：' + cell(fxInfo.fetchedAt), '');
+  if (costProfile) {
+    push('| 平台佣金 | 广告 | 退货 | 其它费用 | 头程方式 | 头程费率 | 头程时效 | 头程来源 |', '| --- | --- | --- | --- | --- | --- | --- | --- |');
+    const otherLabel = costProfile.otherUSD > 0 ? '$' + costProfile.otherUSD.toFixed(2) : '不计';
+    const freightLabel = freight ? freight.label : (costProfile.freightMode || '-');
+    const freightRate = freight?.perKgCNY != null ? '¥' + freight.perKgCNY + '/kg' : '未取到';
+    const freightDays = freight ? freight.transitDays : '-';
+    const freightSource = freight ? (freight.source === 'live' ? '实时接口' : freight.source === 'manual' ? '手动指定' : '未取到') : '-';
+    push('| ' + pct(costProfile.referralRate, 0) + ' | ' + pct(costProfile.adRate, 0) + ' | ' + pct(costProfile.returnRate, 0) + ' | '
+      + otherLabel + ' | ' + freightLabel + ' | ' + freightRate + ' | ' + freightDays + ' | ' + freightSource + ' |', '');
+  }
+  push(...costDataNotes(fxInfo, freight, costProfile));
   push('> 数据来源：' + cell(source), '');
 
   if (brief) {

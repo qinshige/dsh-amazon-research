@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { join, resolve, isAbsolute, sep } from 'node:path';
 import { mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
+import { getPlatform, resolveSite, providerSupportsPlatform } from './platforms/index.js';
 
 /** 解析插件数据目录：config.dataDir > $DSH_HOME/amazon-research > ~/.dsh/amazon-research */
 export function resolveDataDir(configured) {
@@ -37,6 +38,11 @@ export async function readConfig(dataDir) {
     // 自愈：历史上被写进 config 的宿主内部路径（profile 目录）一律视为无效，
     // 否则面板会一直指向一个空目录。
     if (merged.outputRoot && isHostInternalPath(merged.outputRoot)) merged.outputRoot = '';
+    // Preserve valid legacy Amazon settings; repair only unsupported combinations.
+    const platform = getPlatform(merged.platform) || getPlatform('amazon');
+    merged.platform = platform.id;
+    merged.marketplace = resolveSite(platform.id, merged.marketplace) || platform.defaultSite;
+    merged.provider = providerSupportsPlatform(merged.provider, platform.id) ? merged.provider : platform.providers[0];
     return merged;
   } catch {
     return defaults;
@@ -46,7 +52,19 @@ export async function readConfig(dataDir) {
 /** 合并写回 config.json（原子性足够：先写临时文件再 rename） */
 export async function writeConfig(dataDir, patch) {
   const current = await readConfig(dataDir);
-  const next = { ...current, ...(patch || {}) };
+  const changes = patch || {};
+  const invalid = (message) => { throw Object.assign(new Error(message), { code: 'invalid_args', status: 400 }); };
+  for (const key of ['platform', 'marketplace', 'provider']) {
+    if (Object.hasOwn(changes, key) && (typeof changes[key] !== 'string' || !changes[key].trim())) invalid(key + ' 必须为非空字符串');
+  }
+  const platform = getPlatform(changes.platform ?? current.platform);
+  if (!platform) invalid('未知平台');
+  const changedPlatform = platform.id !== current.platform;
+  const site = Object.hasOwn(changes, 'marketplace') ? resolveSite(platform.id, changes.marketplace) : changedPlatform ? platform.defaultSite : current.marketplace;
+  if (!site) invalid('该平台不支持此站点；沙特只支持 Trendyol.sa');
+  const provider = Object.hasOwn(changes, 'provider') ? changes.provider.trim() : changedPlatform ? platform.providers[0] : current.provider;
+  if (!providerSupportsPlatform(provider, platform.id)) invalid('数据源不支持所选平台');
+  const next = { ...current, ...changes, platform: platform.id, marketplace: site, provider };
   await mkdir(dataDir, { recursive: true });
   const tmp = join(dataDir, '.config.json.tmp');
   await writeFile(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');

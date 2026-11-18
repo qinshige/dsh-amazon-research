@@ -29,12 +29,12 @@ test('landedCost：按净利率口径拆解全成本（采购 + 头程 + FBA + �
   const result = landedCost({ priceCNY: 2.8, weightG: 67, priceUSD: 23.99 });
   assert.ok(result, '应返回测算结果');
   closeTo(result.purchaseUSD, 2.8 / 6.7, 0.001, '采购$（按成本汇率 6.7）');
-  closeTo(result.firstMileUSD, (67 / 1000) * 35 / 6.7, 0.001, '头程$（按成本汇率 6.7）');
+  closeTo(result.firstMileUSD, (67 / 1000) * 18 / 6.7, 0.001, '头程$（按成本汇率 6.7）');
   closeTo(result.fbaFeeUSD, 3.22, 0.001, 'FBA$（≤4oz 档）');
   closeTo(result.referralUSD, 23.99 * 0.15, 0.001, '佣金$');
   closeTo(result.adUSD, 23.99 * 0.1, 0.001, '广告$');
   closeTo(result.returnUSD, 23.99 * 0.05, 0.001, '退货$');
-  closeTo(result.otherUSD, 0.35, 0.001, '其它$');
+  closeTo(result.otherUSD, 0, 0.001, '其它$');
   closeTo(result.totalCostUSD,
     result.purchaseUSD + result.firstMileUSD + result.referralUSD + result.fbaFeeUSD + result.adUSD + result.returnUSD + result.otherUSD,
     0.01, '全成本$');
@@ -49,11 +49,11 @@ test('landedCost：notes 逐项标注「实测值 / 估算值」', () => {
   assert.match(joined, /采购价 ¥2\.80（实测值/);
   assert.match(joined, /成本汇率 6\.7 CNY\/USD/);
   assert.match(joined, /结算汇率 6\.6 CNY\/USD/);
-  assert.match(joined, /头程 ¥35\/kg（估算值/);
+  assert.match(joined, /头程 ¥18\/kg（估算值/);
   assert.match(joined, /FBA 配送费 \$3\.22（估算值/);
   assert.match(joined, /广告 10\.00%（估算值/);
   assert.match(joined, /退货损耗 5\.00%（估算值/);
-  assert.match(joined, /仓储\/其它 \$0\.35（估算值/);
+  assert.match(joined, /仓储\/其它 \$0\.00（用户口径/);
 });
 
 test('landedCost：给定 FBA 费时按实测值标注且 fbaEstimated=false', () => {
@@ -424,33 +424,36 @@ test('category-web：没有 costs 时不产出 sourcing / profitBySubMarket，�
 /* research_unit_cost 工具                                              */
 /* ------------------------------------------------------------------ */
 
-test('research_unit_cost：已注册，描述写明会打开 1688 页面并消耗网页端查询次数', async () => {
+test('Amazon成本工具保留；Saudi候选使用独立严格工作流', async () => {
   const { createTools } = await import('../host/tools.js');
   const tools = createTools({ ctx: {}, dataDir: '/tmp', secrets: null, providers: null, version: 'test' });
-  const tool = tools.find((item) => item.name === 'research_unit_cost');
-  assert.ok(tool, '应注册 research_unit_cost 工具');
-  assert.match(tool.description, /会打开 1688 页面并消耗网页端查询次数/);
-  assert.match(tool.description, /净利率/);
-  assert.ok(tool.parameters.properties.subMarkets, '应接受 subMarkets 参数');
-  assert.ok(tool.parameters.properties.limit, '应接受 limit 参数');
-  assert.ok(tool.parameters.properties.provider, '应接受 provider 参数');
+  const cost = tools.find((item) => item.name === 'research_unit_cost');
+  assert.ok(cost);
+  assert.equal((await cost.execute({ platform: 'trendyol', marketplace: 'SA' })).ok, false);
+  const tool = tools.find((item) => item.name === 'research_product_select');
+  assert.ok(tool);
+  assert.match(tool.description, /100分/);
+  assert.ok(tool.parameters.properties.candidates);
+  for (const key of ['fx', 'costProfile', 'channel']) assert.ok(tool.parameters.properties[key], `保留Amazon参数${key}`);
 });
 
-test('research_unit_cost：缺 subMarkets 与 category 时返回 INVALID_ARGS（不发网络请求）', async () => {
+test('Saudi工作流：screen缺候选或误传旧subMarkets时拒绝，不发网络请求', async () => {
   const { createTools } = await import('../host/tools.js');
   const tools = createTools({ ctx: {}, dataDir: '/tmp', secrets: null, providers: null, version: 'test' });
-  const tool = tools.find((item) => item.name === 'research_unit_cost');
-  const result = await tool.execute({});
-  assert.equal(result.ok, false);
-  assert.equal(result.error.code, 'INVALID_ARGS');
+  const tool = tools.find((item) => item.name === 'research_product_select');
+  for (const args of [{}, { action: 'screen' }, { action: 'screen', subMarkets: [{ keyword: 'mock' }] }]) {
+    const result = await tool.execute({ ...args, platform: 'trendyol', marketplace: 'SA' });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'MARKET_ROUTE_INVALID');
+  }
 });
 
 
 test('maxPurchaseCNYForNetMargin：按 25% 红线倒推采购价上限', () => {
   const result = maxPurchaseCNYForNetMargin({ priceUSD: 23.99, weightG: 67, fbaFeeUSD: 3.22, returnRate: 0.05 });
-  const expectedCNY = (23.99 * (1 - 0.15 - 0.10 - 0.05 - 0.25) - result.firstMileUSD - 3.22 - 0.35) * 6.7;
+  const expectedCNY = (23.99 * (1 - 0.06 - 0.10 - 0.05 - 0.25) - result.firstMileUSD - 3.22) * 6.7;
   closeTo(result.maxPurchaseCNY, expectedCNY, 0.02, '采购价上限（¥）');
-  assert.ok(result.maxPurchaseCNY > 42 && result.maxPurchaseCNY < 52, '售价 23.99 的小件采购上限约 ¥46（成本汇率 6.7）');
+  assert.ok(result.maxPurchaseCNY > 63 && result.maxPurchaseCNY < 65, '用户费率口径下采购上限约 ¥64（成本汇率 6.7）');
   assert.equal(maxPurchaseCNYForNetMargin({ priceUSD: 5 }), null, '售价撑不起红线时返回 null');
 });
 

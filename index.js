@@ -2,10 +2,10 @@
  * dsh-amazon-research —— 亚马逊选品研究（DeepSeek Harness 插件）。
  *
  * 能力：
- *   1. 7 个模型工具：research_provider_status / research_category_select /
+ *   1. 8 个模型工具：research_provider_status / research_category_select /
  *      research_product_select（四途径 + 九策略 + 十维 + 差异化）/ research_unit_cost / research_runs /
- *      research_page（点击/滚动/拖滚动条等页面操作）/ mcp_call；
- *   2. 2 个内嵌技能：amazon-category-selection（类目五维）与 amazon-product-selection（选品全流程）；
+ *      research_page（点击/滚动/拖滚动条等页面操作）/ mcp_call / research_saudi_source；
+ *   2. 3 个内嵌技能：amazon-category-selection / amazon-product-selection / trendyol-saudi-product-selection；
  *   3. 侧栏「选品研究」面板 + 设置页的 HTTP API（host/routes.js）；
  *   4. 数据落盘：$DSH_HOME/amazon-research/（密钥、配置、缓存、运行目录）。
  *
@@ -23,7 +23,7 @@ import { createTools } from './host/tools.js';
 import { registerRoutes } from './host/routes.js';
 
 export const name = 'dsh-amazon-research';
-export const version = '0.4.8';
+export const version = '0.5.2';
 
 /** 工具是硬依赖；缺了它插件没有意义。 */
 export const inject = ['tools'];
@@ -37,22 +37,25 @@ const bt = String.fromCharCode(96);
 
 const GUIDANCE_TEXT = [
   '## 多平台选品研究（插件 dsh-amazon-research）',
-  '',
-  '用户要做 Amazon / Trendyol 品类选品时先确认平台与站点。以下 1–6 为 Amazon MCP 链路，Trendyol 见后文；不要凭记忆编造类目数据：',
-  '1. 先 ' + bt + 'research_provider_status' + bt + ' 确认卖家精灵（Sellersprite）密钥是否配置、默认站点是什么；未配置就引导用户打开左侧栏「选品研究」→ 设置页填写 Secret Key。',
-  '2. 再 ' + bt + 'research_category_select' + bt + ' 跑品类选品（参数：category 或 nodeIdPath、marketplace、limit、可选 unitCost）。调用前先告诉用户预计消耗 9~11 次数据服务额度。',
-  '3. 工具只返回摘要与产物路径；需要细节用 ' + bt + 'research_runs' + bt + '（action=get）读报告，不要把整表塞回对话。',
-  '4. 评分口径固定为上游 92 分制：normalized = total/92*100，评级 ≥80 优秀 / ≥60 良好 / ≥40 一般 / <40 较差。报告里要同时写清 score/max 与归一化值。',
-  '5. 数据纪律：所有数字必须来自工具返回；缺失字段写「未取到」并说明；每次结论附数据来源与抓取时间；禁止用常识补齐 ASIN、销量、价格、排名。',
-  '6. ' + bt + 'research_page' + bt + ' 可直接操作你已登录的 Chrome 页面：click 点击 / type 输入 / press 按键 / scroll 滚动 / drag 拖滚动条 / read 读可见文本或表格 / scrollAll 滚到底读全。只用于把页面上「必须点击或滚动才出现」的数据翻出来，不绕过验证码与登录；页面出现人机校验时它会返回 warning，请人工处理。',
-  '7. ' + bt + 'mcp_call' + bt + ' 只是逃生口（关键词/评论/单品详情等尚未封装的能力），优先用高层工具。',
-  '7. 选品全流程（四途径 → 九策略 → 十维 → 差异化）：先 ' + bt + 'research_product_select' + bt + '（action=plan）拿到站内 7 个榜单入口、站外/软件/线下渠道、九策略适用性与十维清单；把候选 ASIN 按采集表填好后用 action=screen 做十维体检、一票否决、分档、净利率与差异化。screen 传 profile（beginner 默认 / operator / factory）与 targetMonthlyUnits，报告开头直接给决策单：做/小批量测/先补数/不做、致命项、安全边际（采购上限/售价下限/广告上限/退货上限）、首批资金与回本、可攻击面；beginner 保守档画像另带附录教练层。一档/二档再跑 ' + bt + 'research_unit_cost' + bt + ' 采 1688 真实采购价重算。两个 action 都不消耗数据服务额度。',
-  '8. 内置技能：amazon-product-selection 覆盖四途径与九策略（单品级），amazon-category-selection 只做类目五维（类目级）；不要用类目数据冒充单品结论。',
-  '',
-  'Trendyol P1：先 research_provider_status(provider=trendyol-web)，无需 Secret Key；当前支持 TR（土耳其，www.trendyol.com，TRY）和 SA（沙特阿拉伯，www.trendyol.sa/en，SAR）；请用户打开目标官网并确认国家。官网启用国家以中文展示，其余国家尚未接通抓取。轻量探测只代表找到标签页，不代表页面/国家校验已通过。',
-  '再 research_category_select(platform=trendyol, provider=trendyol-web, marketplace=TR或SA, category=搜索词（TR用土耳其语、SA用英文）, pages=2, limit=50, detailTopN=5)。pages 为 1–5，limit 为 10–100 个去重商品，detailTopN 为 0–5。调用前告知最多 pages 个搜索页 + detailTopN 个商品页请求，国家选择/加载可能另有浏览器请求；不耗 MCP 额度。',
-  '遇 CAPTCHA、限流、拒绝访问或国家页异常立即停止，交由用户人工处理，不绕过。Trendyol 不支持 Amazon nodeIdPath/month/unitCost/costs；research_unit_cost 的 Amazon FBA 利润模型不可套用。',
-  'Trendyol 报告是关键词搜索样本、不是全类目。月销量/月销额/自营/利润未取到；用累计计数代理活跃度（TR评论数；SA评价数含仅评分，非文字评论）、用低计数商品数占比代理增长、已知品牌内计数权重算 CR3/HHI。模型 trendyol-review-proxy-v1 是实验口径；分数仍按 92 分制，不能与 Amazon 或不同国家横比，也不能据评级推荐进入。币种严格随目标国家：TR=TRY/TL，SA=SAR，勿用美元档位。',
+  '先确认市场与平台：美国站保留原 Amazon US 选品功能；仅沙特站限制为 Trendyol.sa（SA/SAR），不使用 Amazon.sa、Temu、AliExpress 替代沙特需求。美国与沙特模型不可混用。调用工具明确传 platform 与 marketplace，避免沿用上次市场。',
+  '### Amazon 美国及原有非沙特站点',
+  '先加载 amazon-category-selection（类目）或 amazon-product-selection（单品）技能。research_provider_status 确认 Sellersprite 配置；密钥未配置时到「选品研究→设置」填写 Secret Key。',
+  'research_category_select(platform=amazon, marketplace=US, category或nodeIdPath, limit, 可选unitCost)保留原类目研究；调用前说明预计9–11次数据服务额度。原92分制：normalized=total/92*100，评级≥80优秀/≥60良好/≥40一般/<40较差；同时报告score/max及归一化值。',
+  'research_product_select(platform=amazon, marketplace=US, action=plan)保留四途径、九策略、十维及差异化；screen使用候选ASIN原模板、profile和targetMonthlyUnits，不使用沙特candidates模板。原collect与research_unit_cost供应链/FBA测算仅用于Amazon，不套用沙特公式。',
+  'Amazon成本使用用户指定costProfile/freightMode/freightPerKgCNY；缺失真实报价写未取到，汇率记录来源日期。原默认广告10%、退货5%、佣金6%、其他0为用户假设而非官方费率。',
+  'research_runs读取产物；research_page操作已登录页面，不绕过验证码；mcp_call仅用于Amazon尚未封装的数据能力，优先高层工具。所有商品数字来自实际数据，记录来源时间，不编造ASIN、销量或排名。',
+  '### Trendyol.sa 沙特严格选品（以下规则仅适用于沙特）',
+  '先加载 trendyol-saudi-product-selection 技能，再 research_product_select(action=plan) 读取完整输入模板。用户提供的工作流 v1 为执行依据；不得静默修改核心规则。',
+  '先 research_provider_status(provider=trendyol-web)。research_category_select 只建立需求池，调用前说明 pages+detailTopN 页面请求上限；国家/币种必须核验，验证码/限流立即停止。旧92分代理不得用于定品。',
+  '严格顺序：需求池→需求门槛→BB/LD路线→商品身份→合规→物流→1688寻源核价→贡献利润→退货损失→质量→100分评分→样品→小批量测试→扩货/终止→标准输出。未知暂停，不跳步。',
+  '需求四项至少两项；BB同一目录身份必须一致，类似或改良转LD独立页面，不借用评分和Buybox。合规未知先暂停，不算利润。',
+  '沙特候选使用research_saudi_source：plan取selection模板→collect查1688→人工同款/SKU/数量核价与计费重证据→prepare回填→research_product_select screen。collect前说明最多1搜索页+detailLimit详情页，占网页查询次数；遇验证/登录/限流停止。缺报价/费用证据暂停，不用最低卡片价或净重；类似款先明确LD。国内运费/包装按每销售单位独立披露，未扣于固定公式，不称完整净利润；旧候选重跑也需补寻源。仅准备测算，不下单。',
+  '固定工作流口径：含税售价/1.15 - 售价*(10%+8%+4%) - ((采购人民币+计费重kg*68)/1.8+10+5)。利润≤0淘汰；利润率<10%淘汰或谈价，10–15%有条件，≥15%优先测试。',
+  '标准件预估退回15 SAR；仓库等未知不填0；退货损失>40 SAR或>售价60%高风险。预期退货成本单列，不与4%售后准备重复扣减。',
+  '仅通过门槛后BB人工有证据评分30/30/15/15/10，总分100；70以上样品，60–69观察，60以下淘汰；LD单列不排名。',
+  'research_product_select(action=screen,candidates=[按plan模板填数据])生成最终对标品.md、淘汰候选.md、利润测算.xlsx、evidence索引。证据索引不代表截图已采集；缺失来源/日期/费用必须如实标记。',
+  '样品2–3件，首批20–30件；1000展示、50–100有效点击、20–30单为内部测试观察阈值，每7–14天竞品快照。未真实满足扩货条件不得推荐扩货。',
+  '1688/Alibaba只用于供应链，Google/TikTok/Instagram仅解释需求，其他国家Trendyol只辅助。不得凭记忆补商品数字或伪造证据。',
 ].join('\n');
 
 /** 去掉 YAML frontmatter，模型只需要正文（name/description 由技能目录提供）。 */
@@ -89,7 +92,7 @@ async function discoverSkills() {
   }
   const skills = [];
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory() || !['amazon-category-selection', 'amazon-product-selection', 'trendyol-saudi-product-selection'].includes(entry.name)) continue;
     const dir = join(SKILLS_DIR, entry.name);
     const file = join(dir, 'SKILL.md');
     try {

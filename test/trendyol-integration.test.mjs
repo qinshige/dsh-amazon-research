@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
@@ -131,18 +131,32 @@ test('shared Chrome wait uses seconds externally and millisecond request budget'
   assert.equal(ready,true);assert.equal(clock,4000);assert.deepEqual(budgets,[5000,3000,1000]);
 });
 
-test('HTTP defaults switch platforms atomically; incompatible provider/site rejected',async(t)=>{
+test('HTTP defaults preserve Amazon US and reject Amazon SA / non-SA Trendyol atomically',async(t)=>{
   const dataDir=await temp(t);let handler;
   registerRoutes({get:()=>({register:(route)=>{handler=route.handler;return ()=>{};}})},{dataDir,providers:{list:()=>[]},secrets:{},version:'test'});
   const server=createServer((req,res)=>handler(req,res));await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   t.after(()=>new Promise(resolve=>server.close(resolve)));
   const post=async(body)=>{const response=await fetch('http://127.0.0.1:'+server.address().port+'/amazon-research/api/settings',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});return {status:response.status,data:await response.json()};};
-  const tr=await post({platform:'trendyol'});assert.equal(tr.status,200);assert.equal(tr.data.config.marketplace,'TR');assert.equal(tr.data.config.provider,'trendyol-web');
-  for(const body of [{platform:'trendyol',marketplace:'US'},{platform:'trendyol',provider:'sellersprite'},{platform:'unknown'}]) assert.equal((await post(body)).status,400);
+  const tr=await post({platform:'trendyol'});assert.equal(tr.status,200);assert.equal(tr.data.config.marketplace,'SA');assert.equal(tr.data.config.provider,'trendyol-web');
+  for(const body of [{platform:'trendyol',marketplace:'US'},{platform:'trendyol',marketplace:'TR'},{platform:'trendyol',provider:'sellersprite'},{platform:'unknown'},{platform:'amazon',marketplace:'SA'}]) assert.equal((await post(body)).status,400);
   assert.equal((await readConfig(dataDir)).platform,'trendyol');
-  const amz=await post({platform:'amazon'});assert.equal(amz.data.config.marketplace,'US');assert.equal(amz.data.config.provider,'sellersprite');
-  await writeConfig(dataDir,{platform:'trendyol',provider:'trendyol-web',marketplace:'TR'});
-  // If Amazon inherits TR incorrectly this would fail INVALID_SITE before input validation.
+  assert.equal((await readConfig(dataDir)).marketplace,'SA');
+  // Restored old configuration cannot re-enable the unsupported storefront.
+  await assert.rejects(writeConfig(dataDir,{platform:'trendyol',provider:'trendyol-web',marketplace:'TR'}),{code:'invalid_args'});
+  await assert.rejects(writeConfig(dataDir,{platform:'amazon',provider:'sellersprite',marketplace:'SA'}),{code:'invalid_args'});
+  const us=await post({platform:'amazon'});assert.equal(us.status,200);
+  assert.equal(us.data.config.marketplace,'US');assert.equal(us.data.config.provider,'sellersprite');
+  await writeFile(join(dataDir,'config.json'),JSON.stringify({platform:'amazon',provider:'sellersprite',marketplace:'US'}));
+  assert.equal((await readConfig(dataDir)).marketplace,'US');
+  assert.equal((await readConfig(dataDir)).platform,'amazon');
   const tool=createTools({dataDir,providers:{},secrets:{}}).find(t=>t.name==='research_category_select');
-  const result=await tool.execute({platform:'amazon'});assert.notEqual(result.error?.code,'INVALID_SITE');
+  for (const args of [{platform:'amazon',marketplace:'SA'}, {platform:'trendyol',marketplace:'TR'}, {platform:'trendyol',marketplace:'US'}]) {
+    const result=await tool.execute(args);assert.equal(result.ok,false);assert.equal(result.error.code,'MARKET_ROUTE_INVALID');
+  }
+  const selection=createTools({dataDir,providers:{},secrets:{}}).find(t=>t.name==='research_product_select');
+  const usPlan=await selection.execute({platform:'amazon',marketplace:'US',action:'plan',category:'vases'});
+  assert.notEqual(usPlan.error?.code,'MARKET_ROUTE_INVALID');
+  assert.equal(usPlan.ok,true);
+  const saPlan=await selection.execute({platform:'trendyol',marketplace:'SA',action:'plan'});
+  assert.equal(saPlan.ok,true);assert.equal(saPlan.model,'trendyol-saudi-workflow-v1');
 });

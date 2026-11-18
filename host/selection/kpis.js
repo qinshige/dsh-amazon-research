@@ -211,7 +211,7 @@ export function normalizeCandidate(row = {}) {
  * 全成本净利测算：优先按行内参数（采购价/件重/配送费/广告/退货/佣金）算；
  * 缺采购价时退回调用方给定的「净利率」字段；都没有则返回 null（未知）。
  */
-export function computeMargin(c, { fx = 6.7, costFx = null, settleFx = 6.6, channel = 'amazon-fba' } = {}) {
+export function computeMargin(c, { fx = 6.7, costFx = null, settleFx = 6.6, channel = 'amazon-fba', profile = null, freight = null } = {}) {
   const costRate = costFx === null || costFx === undefined ? fx : costFx;
   // 包装对齐：采集表若给的是「1688 单件价」，必须乘以 Amazon 一个可售单位的件数，
   // 否则采购成本会被低估 10~100 倍（实测：20 个装手套夹，¥1.70/个 当成整包价 → 少算 20 倍）。
@@ -243,6 +243,11 @@ export function computeMargin(c, { fx = 6.7, costFx = null, settleFx = 6.6, chan
     adRate: c.adPct ?? undefined,
     returnRate: c.returnPct ?? undefined,
     otherUSD: c.otherUSD ?? undefined,
+    costFx: costRate,
+    settleFx,
+    profile,
+    freight,
+    firstMileUSD: c.firstMileUSD ?? undefined,
     fx,
   });
   if (!calc) return null;
@@ -301,12 +306,12 @@ function statusFrom(condition, okStatus = OK, badStatus = BAD) {
  * 单个候选品的十维体检。
  * @returns {{asin:string, tier:string, hitRate:number, judgedCount:number, checks:Array, vetoes:Array, unknown:Array, margin:number|null, profit:object|null}}
  */
-export function evaluateCandidate(row, { fx = 6.7, costFx = null, settleFx = 6.6, smallVolumeUnits = 200, channel = 'amazon-fba' } = {}) {
+export function evaluateCandidate(row, { fx = 6.7, costFx = null, settleFx = 6.6, smallVolumeUnits = 200, channel = 'amazon-fba', profile = null, freight = null } = {}) {
   const c = normalizeCandidate(row);
   const checks = [];
   const vetoes = [];
   const unknown = [];
-  const marginInfo = computeMargin(c, { fx, costFx, settleFx, channel });
+  const marginInfo = computeMargin(c, { fx, costFx, settleFx, channel, profile, freight });
   const margin = marginInfo ? marginInfo.netMargin : null;
   const smallVolume = c.monthlySales !== null && c.monthlySales > 0 && c.monthlySales <= smallVolumeUnits;
 

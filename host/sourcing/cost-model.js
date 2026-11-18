@@ -46,7 +46,18 @@ export const LOW_PRICE_BAND = Object.freeze({
   maxFbaFeeUSD: 4.5,
 });
 
-/** 默认参数（全部为经验/估算值，按实际替换）。 */
+/**
+ * 成本口径档（用户口径，v0.4.9 起为默认）：
+ *   - 平台佣金 6%
+ *   - 广告 10%
+ *   - 退货 5%
+ *   - 其它费用 0（暂不计）
+ *   - 头程按**实时海运 / 空运运价**折算（见 host/sourcing/freight.js）
+ *
+ * 为什么佣金是 6%：这是跨境直发（TikTok Shop 美国站）多数类目的实际费率。
+ * ⚠️ Amazon 美国站的**平台佣金通常按类目在 8%~17%**（工具/家居 15%、服饰 17%），
+ * 若走 Amazon 渠道请用 referralRate 覆盖，否则净利率会被高估。
+ */
 export const DEFAULT_COST_PARAMS = Object.freeze({
   /** 成本汇率：把人民币成本（1688 采购价等）折成美元时用。 */
   costFx: 6.7,
@@ -54,11 +65,18 @@ export const DEFAULT_COST_PARAMS = Object.freeze({
   settleFx: 6.6,
   /** 兼容旧字段：等价于 costFx。 */
   fx: 6.7,
-  firstMilePerKgCNY: 35,
-  referralRate: 0.15,
+  /** 头程默认运输方式：sea | air | express */
+  freightMode: 'sea',
+  /** 头程兜底费率（¥/kg）：实时接口与手动值都没有时用内置表 */
+  firstMilePerKgCNY: 18,
+  /** 平台佣金 */
+  referralRate: 0.06,
+  /** 广告 */
   adRate: 0.1,
+  /** 退货损耗 */
   returnRate: 0.05,
-  otherUSD: 0.35,
+  /** 其它费用（仓储/操作等）：用户口径暂时不计 */
+  otherUSD: 0,
 });
 
 /** FBA 配送费档位（**估算值**：按美国站小号标准件费率，重量取自 1688 详情页件重）。 */
@@ -202,12 +220,15 @@ function resolveFulfillment(channel, { givenFeeUSD, weightG, assumedWeightG }) {
  * @param {number} [params.costFx=6.7] 成本汇率 CNY/USD（人民币成本折美元）
  * @param {number} [params.settleFx=6.6] 结算汇率 CNY/USD（美元收入折人民币结算）
  * @param {number} [params.fx=6.7] 兼容旧字段，等价于 costFx
- * @param {number} [params.firstMilePerKgCNY=35] 头程 ¥/kg（含海运 + 贴标摊销）
+ * @param {number} [params.firstMilePerKgCNY=18] 头程 ¥/kg（兜底；优先用 params.freight 的实时运价）
+ * @param {object} [params.freight] 头程运价（host/sourcing/freight.js 的 resolveFreight 结果）
+ * @param {object} [params.profile] 成本口径档（host/sourcing/cost-profile.js）：
+ *   { referralRate, adRate, returnRate, otherUSD, freightMode }，优先级高于渠道默认值
  * @param {number} [params.referralRate=0.15] 平台佣金
  * @param {number|null} [params.fbaFeeUSD=null] 给定则用（实测值），否则按重量档估算
  * @param {number} [params.adRate=0.10] 广告
  * @param {number} [params.returnRate=0.05] 退货损耗
- * @param {number} [params.otherUSD=0.35] 仓储/其它
+ * @param {number} [params.otherUSD=0] 仓储/其它（用户口径：暂不计）
  * @param {number} params.priceUSD 售价（Amazon 侧，USD）
  * @param {object} [params.sources] 每个参数的来源标注（'实测值' / '估算值'）
  * @param {string} [params.channel] 销售渠道 id：amazon-fba / amazon-fbm / tiktok-shop（默认 amazon-fba）
@@ -226,11 +247,21 @@ export function landedCost(params = {}) {
   // 双汇率：成本项用成本汇率折美元；收入/利润回款用结算汇率折人民币。
   const costFx = positiveOr(source.costFx, positiveOr(source.fx, def.costFx));
   const settleFx = positiveOr(source.settleFx, def.settleFx);
-  const firstMilePerKgCNY = positiveOr(source.firstMilePerKgCNY, channel.firstMilePerKgCNY);
-  const referralRate = rateOr(source.referralRate, channel.referralRate);
-  const adRate = rateOr(source.adRate, channel.adRate);
-  const returnRate = rateOr(source.returnRate, channel.returnRate);
-  const otherUSD = nonNegativeOr(source.otherUSD, channel.otherUSD);
+  // 头程：优先用传入的 freight（实时海运/空运运价），其次显式费率，最后渠道兜底。
+  const freight = source.freight && typeof source.freight === 'object' ? source.freight : null;
+  const givenFirstMileUSD = num(source.firstMileUSD);
+  const hasGivenFirstMile = givenFirstMileUSD !== null && givenFirstMileUSD >= 0;
+  // 实时路径缺报价时不可静默回落估算；逐件实测报价仍可使用。
+  if (freight && !hasGivenFirstMile && (!(num(freight.perKgCNY) > 0) || !(num(source.weightG) > 0))) return null;
+  const firstMilePerKgCNY = freight
+    ? (num(freight.perKgCNY) ?? 0)
+    : nonNegativeOr(source.firstMilePerKgCNY, nonNegativeOr(channel.firstMilePerKgCNY, def.firstMilePerKgCNY));
+  // 成本口径档优先于渠道默认值（用户口径：佣金 6% / 广告 10% / 退货 5% / 其它 0）。
+  const profile = source.profile && typeof source.profile === 'object' ? source.profile : null;
+  const referralRate = rateOr(source.referralRate, profile ? profile.referralRate : channel.referralRate);
+  const adRate = rateOr(source.adRate, profile ? profile.adRate : channel.adRate);
+  const returnRate = rateOr(source.returnRate, profile ? profile.returnRate : channel.returnRate);
+  const otherUSD = nonNegativeOr(source.otherUSD, profile ? profile.otherUSD : channel.otherUSD);
 
   const weightGrams = num(source.weightG);
   const hasWeight = weightGrams !== null && weightGrams > 0;
@@ -249,7 +280,7 @@ export function landedCost(params = {}) {
     weightG: hasWeight ? weightGrams : null,
     assumedWeightG,
   });
-  const firstMileUSD = (assumedWeightG / 1000) * firstMilePerKgCNY / costFx;
+  const firstMileUSD = hasGivenFirstMile ? givenFirstMileUSD : (assumedWeightG / 1000) * firstMilePerKgCNY / costFx;
   const fulfillmentUSD = fba.feeUSD;
   const referralUSD = sellingUSD * referralRate;
   const adUSD = sellingUSD * adRate;
@@ -276,14 +307,15 @@ export function landedCost(params = {}) {
     : `件重未取到：头程按 ${round(assumedWeightG, 0)}g 保守假设计（${src.weight ?? '未取到'}），FBA 按小号标准件最低档估算；本行净利率置信度低`);
   push(`成本汇率 ${costFx} CNY/USD（人民币成本折美元）｜结算汇率 ${settleFx} CNY/USD（美元收入折人民币）`);
   push(`渠道：${channel.label}`);
-  if (firstMilePerKgCNY > 0) push(`头程 ¥${firstMilePerKgCNY}/kg（${src.firstMile ?? '估算值'}，含海运 + 贴标 + 操作摊销）`);
+  if (hasGivenFirstMile) push('头程 ' + usd(firstMileUSD) + '（手动指定每件运费）');
+  else if (firstMilePerKgCNY > 0) push(`头程 ¥${firstMilePerKgCNY}/kg（${freight ? freight.label + '｜时效 ' + freight.transitDays + '｜来源 ' + freight.source + (freight.fetchedAt ? '（' + freight.fetchedAt + '）' : '') : (src.firstMile ?? '估算值')}；附加费以实际报价为准）`);
   else push('头程：跨境直发渠道，运费并入履约成本，不单算');
   push(`平台佣金 ${pct(referralRate)}（${src.referral ?? '估算值'}，渠道默认值）`);
   const fulfillmentLabel = channel.fulfillment === 'fba' ? 'FBA 配送费' : '履约成本';
   push(`${fulfillmentLabel} ${usd(fba.feeUSD)}（${src.fba ?? (useGivenFba ? '实测值' : '估算值')}，${fba.label}${fba.reason ? '；' + fba.reason : ''}）`);
   push(`广告 ${pct(adRate)}（${src.ad ?? '估算值'}，经验默认值：新卖家按 12%–15% 更稳）`);
   push(`退货损耗 ${pct(returnRate)}（${src.return ?? '估算值'}，质量差/易碎调到 8%–10%）`);
-  push(`仓储/其它 ${usd(otherUSD)}（${src.other ?? '估算值'}，经验默认值 $0.30–$0.50）`);
+  push(`仓储/其它 ${usd(otherUSD)}（${src.other ?? (otherUSD > 0 ? '估算值' : '用户口径：暂不计其它费用')}）`);
   push('口径：净利率 = （售价 − 采购 − 头程 − 履约 − 佣金 − 广告 − 退货 − 其它）÷ 售价（扣完全部科目）');
   if (Array.isArray(source.notes)) {
     for (const note of source.notes) push(note);
@@ -311,6 +343,8 @@ export function landedCost(params = {}) {
     // 成本项已在 costFx 下折美元，净利率会与单汇率口径有系统性差异）。
     costFx: round(costFx, 4),
     settleFx: round(settleFx, 4),
+    profile: profile ? { referralRate, adRate, returnRate, otherUSD, freightMode: profile.freightMode || null } : null,
+    freight: freight ? { mode: freight.mode, label: freight.label, perKgCNY: freight.perKgCNY, transitDays: freight.transitDays, source: freight.source, fetchedAt: freight.fetchedAt || null } : null,
     // 人民币口径利润（结算口径）
     priceCNY_settle: round(sellingUSD * settleFx, 2),
     totalCostCNY: round(totalCostUSD * settleFx, 2),

@@ -30,7 +30,8 @@ test('official registry: 39 enabled Chinese countries, 8 excluded, ISO unique de
   assert.equal(new Set(TRENDYOL_SITES.map(s=>s.value)).size,39);
   assert.ok(TRENDYOL_SITES.every(s=>/[\u4e00-\u9fff]/.test(s.label)));
   assert.equal(getTrendyolSite('TR').storefrontId,getTrendyolSite('GE').storefrontId);
-  assert.equal(listPlatforms().find(p=>p.id==='trendyol').sites.length,39);
+  // Historical parser registry remains complete; only Saudi is publicly selectable.
+  assert.deepEqual(listPlatforms().find(p=>p.id==='trendyol').sites.map(s=>s.value),['SA']);
 });
 test('official Saudi locale and actual storefront currencies are retained', () => {
   assert.equal(site.label,'沙特阿拉伯');assert.equal(site.currency,'SAR');assert.equal(site.origin,'https://www.trendyol.sa');

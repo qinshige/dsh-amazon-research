@@ -40,10 +40,29 @@ async function runSnippet(tabId, name) {
   return raw;
 }
 
-/** 找到已登录的卖家精灵标签页；没有就新开一个 */
+/** 登录页 / 验证码页：这些标签页即使存在也不是可用会话 */
+const LOGIN_URL_HINTS = ['/sign', '/login', '/user/login', '/captcha', '/verify'];
+
+/** 判断某个标签页是否停在登录 / 验证页上 */
+function looksLikeLogin(url) {
+  const u = String(url || '').toLowerCase();
+  return LOGIN_URL_HINTS.some((hint) => u.includes(hint));
+}
+
+/**
+ * 找到已登录的卖家精灵标签页；没有就新开一个。
+ *
+ * 注意：不能只看「URL 含 sellersprite.com」——会话过期后卖家精灵会跳到 /w/user/login，
+ * 而该 URL 同样以 sellersprite.com 开头。若命中登录页就换下一个标签页，
+ * 否则会误报 NOT_LOGGED_IN，哪怕其它标签页仍有有效登录态。
+ */
 async function ensureTab(log = () => {}) {
   const tabs = await listTabs();
-  const hit = tabs.find((tab) => tab.url.includes('sellersprite.com') && !tab.url.includes('/sign'));
+  const candidates = tabs.filter(
+    (tab) => tab.url.includes('sellersprite.com') && !looksLikeLogin(tab.url),
+  );
+  // 优先复用已在卖家精灵页面上的标签页（避免打断用户正在看的类目报告页）
+  const hit = candidates.find((tab) => !tab.url.includes('/v2/welcome')) || candidates[0];
   if (hit) {
     log('复用已登录的卖家精灵标签页 ' + hit.id);
     return { tabId: hit.id, owned: false };
@@ -80,9 +99,24 @@ export async function fetchMarketList({ keyword, nodeIdPath, limit = 50, marketp
       await closeTab(tab);
     }
   };
-  const { tabId, owned } = await ensureTab(log);
+  let { tabId, owned } = await ensureTab(log);
   try {
-    const probe = await runSnippet(tabId, 'login-probe.js');
+    let probe = await runSnippet(tabId, 'login-probe.js');
+    // 会话可能只在部分标签页有效：换一个标签页再探一次，别急着报未登录
+    if (probe && probe.hasLogin) {
+      const tabs = await listTabs();
+      const alt = tabs.find(
+        (tab) => tab.id !== tabId && tab.url.includes('sellersprite.com') && !looksLikeLogin(tab.url),
+      );
+      if (alt) {
+        const altProbe = await runSnippet(alt.id, 'login-probe.js');
+        if (altProbe && !altProbe.hasLogin) {
+          log('改用另一个已登录的卖家精灵标签页 ' + alt.id);
+          tabId = alt.id;
+          probe = altProbe;
+        }
+      }
+    }
     if (probe && probe.hasLogin) {
       const err = new Error('卖家精灵网页未登录：请在 Chrome 里登录 sellersprite.com 后重试');
       err.code = 'NOT_LOGGED_IN';
