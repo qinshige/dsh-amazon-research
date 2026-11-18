@@ -55,7 +55,7 @@ description: 亚马逊品类级选品与类目市场调研（SellerSprite 取数
 一次性问清，示例（可合并为 1 个问题组）：
 
 ```text
-1) 站点：默认 US，是否其他站点（UK/DE/FR/IT/ES/CA/JP/MX/AU/IN/AE/BR/SA）？
+1) 站点：默认 US，是否其他站点（UK/DE/FR/IT/ES/CA/JP/MX/AU/IN/AE/BR）？沙特不走 Amazon 站点，见沙特流程。
 2) 类目：给英文关键词（如 "wireless microphones"）或 NodeIdPath；不确定的话我先查节点候选给你选。
 3) 样本上限：默认 Top 50（范围 10–100）；样本越大越接近类目全貌。
 4) 利润：有没有采购+头程成本（USD/件）？没有就按类目均价估算利润空间，报告会标「仅供初筛」。
@@ -85,7 +85,7 @@ description: 亚马逊品类级选品与类目市场调研（SellerSprite 取数
 | --- | --- | --- |
 | `category` | string | 英文类目词（如 `"Cell Phones"`、`"Sofas"`）；与 `nodeIdPath` 二选一 |
 | `nodeIdPath` | string | 类目节点路径（如 `"11091801:11974521:8882489011"`）；知道节点时优先传，避免搜错类目 |
-| `marketplace` | enum，默认配置 US | `US/UK/DE/FR/IT/ES/CA/JP/MX/AU/IN/AE/BR/SA` |
+| `marketplace` | enum，默认配置 US | `US/UK/DE/FR/IT/ES/CA/JP/MX/AU/IN/AE/BR`；`SA` 会被拒绝（沙特销售平台是 Trendyol.sa） |
 | `limit` | integer 10–100，默认 50 | 样本/头部商品数量 |
 | `month` | string `yyyyMM` | 数据月份，默认最近自然月；未就绪时厂商回退最近月 |
 | `unitCost` | number | 单位采购+头程成本（USD/件）；不传则利润维度按价格带估算并标注「仅供初筛」 |

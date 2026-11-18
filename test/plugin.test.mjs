@@ -62,7 +62,7 @@ test('apply 注册工具、系统提示与技能提供者', async () => {
     const { ctx, registered, sections, providers } = fakeCtx();
     apply(ctx, { dataDir });
     const names = registered.map((tool) => tool.name).sort();
-    assert.deepEqual(names, ['mcp_call', 'research_category_select', 'research_page', 'research_product_select', 'research_provider_status', 'research_runs', 'research_saudi_source', 'research_unit_cost']);
+    assert.deepEqual(names, ['mcp_call', 'research_category_select', 'research_page', 'research_product_select', 'research_provider_status', 'research_runs', 'research_saudi_discovery', 'research_saudi_source', 'research_unit_cost']);
     assert.equal(sections.length, 1);
     assert.equal(sections[0].name, 'dsh-amazon-research');
     assert.equal(providers.length, 1);

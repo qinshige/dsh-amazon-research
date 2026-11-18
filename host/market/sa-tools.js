@@ -1,7 +1,8 @@
 import { readConfig, resolveOutputRoot } from '../paths.js';
 import { getPlatform, resolveSite, providerSupportsPlatform } from '../platforms/index.js';
-import { buildTrendyolPlan } from './trendyol-workflow.js';
+import { buildTrendyolPlan, STRICT_DEMAND_POLICY } from './trendyol-workflow.js';
 import { createSaudiSourceTool } from './sa-source-tool.js';
+import { createSaudiDiscoveryTool } from './sa-discovery-tool.js';
 
 const failure = (message) => ({ ok: false, error: { code: 'MARKET_ROUTE_INVALID', message } });
 const output = { schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' } }, required: ['ok'] }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] };
@@ -60,7 +61,7 @@ export function saOnlyTools(legacy, { dataDir }) {
   };
   const oldSelection = byName.research_product_select;
   const selection = { ...oldSelection,
-    description: oldSelection.description + '\n市场分流：Amazon非SA保留plan/collect/screen和原成本、画像、渠道参数。Trendyol仅SA，先plan取得完整嵌套模板，再screen candidates；需求→BB/LD→身份合规→物流→research_saudi_source的1688核价回填→利润退货质量→100分→样品测试扩货。缺寻源证据暂停（旧候选重跑也需补齐），LD单列不排名。',
+    description: oldSelection.description + '\n市场分流：Amazon非SA保留plan/collect/screen和原成本、画像、渠道参数。Trendyol仅SA，先plan取得完整嵌套模板，再screen candidates；需求→BB/LD→身份合规→物流→research_saudi_source的1688核价回填→利润退货质量→100分→样品测试扩货。缺寻源证据暂停（旧候选重跑也需补齐），LD单列不排名。沙特找品可用research_saudi_discovery在Amazon.sa采集需求观测填入demand.observations；需求4项至少2项通过且至少1项来自Trendyol.sa，Amazon.sa不能替代Trendyol需求验证。',
     parameters: parameters(oldSelection, {
       candidates: { type: 'array', items: { type: 'object', additionalProperties: true }, description: '仅Trendyol.sa screen：先plan按inputTemplate填写，不接受旧ASIN行替代' },
     }),
@@ -79,7 +80,7 @@ export function saOnlyTools(legacy, { dataDir }) {
       if (args.action !== 'screen' || !Array.isArray(args.candidates) || !args.candidates.length) return failure('Trendyol.sa先plan；screen必须提供非空candidates，collect仅支持Amazon');
       try {
         const { runTrendyolWorkflow } = await import('./trendyol-report.js');
-        return { ok: true, ...await runTrendyolWorkflow({ candidates: args.candidates, outputRoot: resolveOutputRoot(config, args.outDir), registryDir: dataDir, title: args.title, source: args.source }) };
+        return { ok: true, ...await runTrendyolWorkflow({ candidates: args.candidates, outputRoot: resolveOutputRoot(config, args.outDir), registryDir: dataDir, title: args.title, source: args.source, demandPolicy: STRICT_DEMAND_POLICY }) };
       } catch (error) { return { ok: false, error: { code: 'WORKFLOW_FAILED', message: String(error.message || error) } }; }
     },
   };
@@ -107,10 +108,11 @@ export function saOnlyTools(legacy, { dataDir }) {
   const page = {
     ...byName.research_page,
     description: [
-      '读取已登录的Amazon研究/卖家精灵、Trendyol.sa以及1688/Alibaba供应链页面。沙特需求只以Trendyol.sa为准；不绕过验证码、登录或付费墙。',
+      '读取已登录的Amazon研究/卖家精灵、Trendyol.sa、Amazon.sa（沙特找品来源）以及1688/Alibaba供应链页面。不绕过验证码、登录或付费墙。',
+      '沙特口径：Trendyol.sa 是唯一销售平台；Amazon.sa 只用于找品与需求交叉验证，不能替代 Trendyol.sa 的需求证据（至少1项需求证据必须来自Trendyol.sa）。要结构化采集 Amazon.sa 请用 research_saudi_discovery。',
       '推荐顺序：snapshot 取文本快照与编号控件（ref 如 e12，跨快照稳定）→ click/type 传 ref；长页面用 delta=true 只看变化。navigate/back/forward/reload 做导航，screenshot 需 CDP 驱动，backend 查看当前驱动。',
       'Windows/Linux 只有 CDP 驱动：先用 --remote-debugging-port 启动 Chrome（插件不会自行启动浏览器）；macOS 未开调试端口时回落 AppleScript。',
     ].join('\n'),
   };
-  return [byName.research_provider_status, category, selection, cost, mcp, byName.research_runs, page, createSaudiSourceTool()];
+  return [byName.research_provider_status, category, selection, cost, mcp, byName.research_runs, page, createSaudiSourceTool(), createSaudiDiscoveryTool({ dataDir })];
 }

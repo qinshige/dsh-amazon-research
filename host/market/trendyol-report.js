@@ -3,7 +3,7 @@ import { writeFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createRun, writeArtifacts } from '../runs.js';
 import { buildXlsx } from './xlsx.js';
-import { evaluateTrendyolCandidates, WORKFLOW_STEPS } from './trendyol-workflow.js';
+import { evaluateTrendyolCandidates, WORKFLOW_STEPS, STRICT_DEMAND_POLICY } from './trendyol-workflow.js';
 
 const missing = '待确认';
 const cell = (v) => v === null || v === undefined || v === '' ? missing : v;
@@ -73,11 +73,33 @@ function evidenceIndex(candidates) {
   }));
 }
 
+const platformLabel = { 'trendyol-sa': 'Trendyol.sa', 'amazon-sa': 'Amazon.sa' };
+
+/** 需求观测按平台并列展示；不做聚合、不换算销量。 */
+function demandRows(candidate, evaluated) {
+  const observations = Array.isArray(candidate?.demand?.observations) ? candidate.demand.observations : [];
+  if (!observations.length) return null;
+  const passedIds = new Set((evaluated?.signals || []).filter((item) => item.status === 'passed').flatMap((item) => item.observationIds));
+  return observations.map((item) => [
+    item.id,
+    platformLabel[item.sourcePlatform] || item.sourcePlatform,
+    item.signalType,
+    item.value,
+    item.unit,
+    item.observedAt,
+    item.candidateRelation,
+    item.comparability,
+    passedIds.has(item.id) ? '计入需求门槛' : '未计入',
+    item.sourceUrl,
+  ]);
+}
+
 /** Persist a strict workflow run. evidence[] is optional user-provided path metadata.
  * Never reads evidence files, fetches pages, or generates substitute evidence.
  */
-export async function runTrendyolWorkflow({ candidates = [], outputRoot, registryDir = null, title = 'Trendyol.sa 严格选品工作流', source = '用户提供候选与核验证据' } = {}) {
+export async function runTrendyolWorkflow({ candidates = [], outputRoot, registryDir = null, title = 'Trendyol.sa 严格选品工作流', source = '用户提供候选与核验证据', demandPolicy = null } = {}) {
   if (typeof outputRoot !== 'string' || !outputRoot.trim()) throw new TypeError('outputRoot is required');
+  const policy = demandPolicy && typeof demandPolicy === 'object' ? demandPolicy : STRICT_DEMAND_POLICY;
   // Hash and retain JSON inputs exactly as evaluated. Reject non-JSON values instead of losing them.
   const input = { candidates, title, source };
   const inputJson = JSON.stringify(input, (_key, value) => {
@@ -87,17 +109,22 @@ export async function runTrendyolWorkflow({ candidates = [], outputRoot, registr
   });
   const snapshot = JSON.parse(inputJson);
   const generatedAt = new Date().toISOString();
-  const result = evaluateTrendyolCandidates({ candidates: snapshot.candidates, observedAt: generatedAt });
+  const result = evaluateTrendyolCandidates({ candidates: snapshot.candidates, observedAt: generatedAt, demandPolicy: policy });
   const inputHash = createHash('sha256').update(inputJson).digest('hex');
   const evidence = evidenceIndex(snapshot.candidates);
   const summary = { total: result.candidates.length, paused: result.paused.length, eliminated: result.eliminated.length, ld: result.ldCandidates.length, expandEligible: result.candidates.filter((r) => r.status === 'expand-eligible').length };
-  const sections = [`# ${md(title)}`, `生成时间：${generatedAt}；数据来源：${md(source)}。平台仅 Trendyol.sa / SA / SAR。`, '## 结论纪律', '本报告严格按工作流逐关记录。暂停、观察、小批量测试中的候选均不作推荐；不得跳过缺失证据。评分为有依据的人工维度分，不是实验92分模型。', table(['候选ID', '名称', '路线', '状态', '停止位置', '理由'], result.candidates.map((r) => [r.id, r.name, r.route, r.status, r.stoppedAt, r.reason]))];
+  const demandVerified = result.candidates.every((r) => r.demand?.verified === true);
+  const sections = [`# ${md(title)}`, `生成时间：${generatedAt}；数据来源：${md(source)}。销售平台：Trendyol.sa / SA / SAR；找品来源：Amazon.sa（仅需求交叉验证，不产生候选）。`, '## 结论纪律', '本报告严格按工作流逐关记录。暂停、观察、小批量测试中的候选均不作推荐；不得跳过缺失证据。评分为有依据的人工维度分，不是实验92分模型。', `需求证据来源核验：${demandVerified ? '全部候选均提供了分平台观测（至少1项需求证据来自 Trendyol.sa 由引擎校验）' : '未提供分平台观测（demand.observations）的候选无法核验「至少1项来自Trendyol.sa」，不得当作通过'}。`, table(['候选ID', '名称', '路线', '状态', '停止位置', '理由'], result.candidates.map((r) => [r.id, r.name, r.route, r.status, r.stoppedAt, r.reason]))];
   result.candidates.forEach((r, i) => {
     const inputCandidate = snapshot.candidates[i];
     sections.push(`## 候选 ${md(r.id)}：${md(r.name)}`, `数据快照日期：${md(inputCandidate?.pool?.observedAt)}；来源链接：${md(inputCandidate?.pool?.url)}`, table(['执行序号', '阶段', '状态', '依据/停止原因'], WORKFLOW_STEPS.map((key, index) => {
       const s = r.stages.find((v) => v.stage === key);
       return [index + 1, labels[key], s?.status ?? '未执行', s?.reason || s?.note || (s ? '通过，详见原始核验证据' : '前序关卡未通过，不得跳步')];
     })));
+    const rows = demandRows(inputCandidate, r.demand);
+    if (rows) {
+      sections.push('### 需求观测（分平台并列，不聚合）', table(['观测ID', '来源平台', '信号', '值', '单位', '观测日期', '与候选关系', '可比性', '是否计入门槛', '来源链接'], rows), `需求门槛：${r.demand?.passed ?? 0}/4 通过，其中 Trendyol.sa ${r.demand?.trendyolPassed ?? 0} 项。两平台数值只并列，不相加、不平均、不换算销量。`);
+    } else sections.push('需求观测：未提供分平台观测（demand.observations），需求来源无法逐条追溯。');
     if (inputCandidate?.sourcing) sections.push('### 1688寻源追溯与额外费用披露', sourcingDisclosure, table(['字段', '输入值（非报告核验）'], sourcingRows(inputCandidate)));
     if (r.economics) sections.push('### 已到达单位经济关卡', table(['贡献利润SAR', '贡献利润率', '盈亏平衡售价SAR'], [[r.economics.contributionSAR, r.economics.contributionMargin, r.economics.breakEvenPriceSAR]]));
     else sections.push('单位经济：未到此关卡，不计算利润。');
@@ -119,7 +146,7 @@ export async function runTrendyolWorkflow({ candidates = [], outputRoot, registr
   const workbookPath = join(run.dir, '利润测算.xlsx');
   await writeFile(workbookPath, buildXlsx(workbookSheets(result, snapshot.candidates)));
   artifacts.push({ name: '利润测算.xlsx', path: workbookPath, bytes: (await stat(workbookPath)).size });
-  const manifest = { runId: run.runId, kind: 'trendyol-workflow', title, site: 'SA', marketplace: 'SA', platform: 'trendyol', provider: 'trendyol-web', model: result.model, createdAt: generatedAt, source, inputHash, summary, artifacts };
+  const manifest = { runId: run.runId, kind: 'trendyol-workflow', title, site: 'SA', marketplace: 'SA', platform: 'trendyol', provider: 'trendyol-web', salesPlatform: 'trendyol-sa', demandSources: ['trendyol-sa', 'amazon-sa'], demandPolicy: policy, model: result.model, createdAt: generatedAt, source, inputHash, summary, artifacts };
   artifacts.push(...await writeArtifacts(run, { 'manifest.json': manifest }));
   return { ok: true, runId: run.runId, dir: run.dir, reportPath: join(run.dir, 'report.md'), workbookPath, inputHash, summary, artifacts };
 }

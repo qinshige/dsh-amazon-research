@@ -14,7 +14,8 @@
 ## A1. 站内 URL 模式
 
 域名随站点：US=amazon.com、UK=amazon.co.uk、DE=amazon.de、FR=amazon.fr、IT=amazon.it、ES=amazon.es、
-CA=amazon.ca、JP=amazon.co.jp、MX=amazon.com.mx、AU=amazon.com.au、IN=amazon.in、AE=amazon.ae、BR=amazon.com.br、SA=amazon.sa。
+CA=amazon.ca、JP=amazon.co.jp、MX=amazon.com.mx、AU=amazon.com.au、IN=amazon.in、AE=amazon.ae、BR=amazon.com.br。
+`amazon.sa` 只用于沙特找品（`research_saudi_discovery`），不作为 Amazon 选品站点：沙特销售平台固定 Trendyol.sa。
 
 榜单路径（node 取 nodeIdPath 末段）：
 

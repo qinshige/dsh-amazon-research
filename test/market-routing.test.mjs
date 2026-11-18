@@ -74,6 +74,18 @@ test('restores Amazon unit cost while rejecting accidental Saudi model use',asyn
   assert.equal(r.legacy,'research_unit_cost');assert.equal(r.args.provider,'1688');assert.equal(r.args.freightPerKgCNY,18);assert.equal(calls.length,1);
 });
 
+test('沙特找品工具只认 Amazon.sa / SA，且不改美国站路由',async t=>{
+  const {tools}=await fixture(t);
+  assert.ok(tools.research_saudi_discovery,'找品工具应注册');
+  const plan=await tools.research_saudi_discovery.execute({action:'plan',platform:'amazon-sa',marketplace:'SA'});
+  assert.equal(plan.ok,true);assert.equal(plan.salesPlatform,'trendyol-sa');assert.deepEqual(plan.demandSources,['trendyol-sa','amazon-sa']);
+  for(const args of [{action:'plan',platform:'amazon',marketplace:'SA'},{action:'plan',platform:'amazon-sa',marketplace:'US'},{action:'plan',marketplace:'SA',unknownArg:1},{action:'collect',keyword:''},{action:'prepare'},{action:'unknown'}]) {
+    assert.equal((await tools.research_saudi_discovery.execute(args)).ok,false,JSON.stringify(args));
+  }
+  const rejected=await tools.research_saudi_discovery.execute({action:'prepare',marketplace:'SA',observations:[{id:'x',sourcePlatform:'amazon-sa',sourceUrl:'https://www.amazon.com/dp/B0TEST1234',observedAt:'2026-11-18',signalType:'rating',value:4,capture:{method:'manual'}}]});
+  assert.equal(rejected.ok,false);assert.equal(rejected.rejected.length,1);
+});
+
 test('MCP keeps Amazon payload intact but rejects default Saudi, SA and nested markers',async t=>{
   const {tools,calls}=await fixture(t,{platform:'trendyol',marketplace:'SA',provider:'trendyol-web'});
   const base={provider:'sellersprite',tool:'asin_detail'};

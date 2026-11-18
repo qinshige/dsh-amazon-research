@@ -1,5 +1,27 @@
 # dsh-amazon-research
 
+## v0.9.0：沙特可到 Amazon.sa 找品（销售仍在 Trendyol.sa）
+
+沙特站新增找品通道 `research_saudi_discovery`：在 **沙特亚马逊（amazon.sa）** 前台找品，但销售平台仍然只有 **Trendyol.sa**。Amazon.sa 只做需求交叉验证，不产生候选、不参与利润、退货或评分。
+
+| 关注点 | 规则 |
+| --- | --- |
+| 销售平台 | 固定 `trendyol-sa`；候选 `pool.url` 必须是 Trendyol.sa 商品链接 |
+| 找品来源 | `amazon.sa` 前台；`research_saudi_discovery` 的 `plan / collect / prepare` |
+| 需求门槛 | 4 项至少 2 项通过，**且至少 1 项必须来自 Trendyol.sa**；Amazon.sa 只能交叉验证 |
+| 证据结构 | `candidate.demand.observations[]` + 信号用 `observationIds` 引用；引擎自行判定，不接受直接给 `passed` |
+| 待匹配池 | Amazon.sa 找到但 Trendyol.sa 无对应商品 → 只进「找品待匹配池」，不进候选池 |
+| 1688 | 逻辑不变：`research_saudi_source` 的 SKU/数量档/报价/计费重/额外费用校验原样保留 |
+| 美国站 | 完全不动：92 分模型、FBA、`research_unit_cost`、MCP 采集、`{platform:'amazon',marketplace:'SA'}` 仍被拒绝 |
+
+```json
+{"action":"plan","platform":"amazon-sa","marketplace":"SA"}
+{"action":"collect","platform":"amazon-sa","marketplace":"SA","mode":"search","keyword":"cup holder","pages":1}
+{"action":"prepare","platform":"amazon-sa","marketplace":"SA","observations":[...]}
+```
+
+`collect` 会真实打开网页：调用前需说明最多 `pages`（1–3）个页面请求；遇验证码、登录、限流、拒绝访问立即停止，不换标签、不重试。抓不到就写「未取到」，不估算价格、不换算销量。
+
 ## v0.8.0：支持 Windows / Linux（CDP 驱动），macOS 保持全功能
 
 浏览器层按平台分流：**插件自己从不启动 Chrome**，只驱动你已经开着的浏览器或连接你开的调试端口。
@@ -61,7 +83,7 @@ Windows 启动示例（自己执行，插件不代跑）：
 
 ## v0.5.1：美国 Amazon 保留；仅沙特站限定 Trendyol.sa
 
-**“仅 Trendyol.sa”只限制沙特市场，不限制整个插件。** 美国站 Amazon US 的原类目研究、单品筛选、成本测算、技能、密钥设置与历史记录均保留；原有 Amazon 非沙特站点继续保留。沙特市场仅支持 **Trendyol.sa / SA / SAR / trendyol-web**，不支持 Amazon.sa、Temu、AliExpress 找品。工具调用建议明确 `platform` 与 `marketplace`，不混用市场模型。
+**“仅 Trendyol.sa”指的是沙特市场的销售平台。** 美国站 Amazon US 的原类目研究、单品筛选、成本测算、技能、密钥设置与历史记录均保留；原有 Amazon 非沙特站点继续保留。沙特市场销售平台只有 **Trendyol.sa / SA / SAR / trendyol-web**；从 v0.9.0 起可以用 `research_saudi_discovery` 在沙特亚马逊（amazon.sa）找品，但 Amazon.sa 不是销售平台、不产生候选、不参与利润与评分。Temu、AliExpress 仍不参与。工具调用建议明确 `platform` 与 `marketplace`，不混用市场模型。
 
 - `research_provider_status`：保留 Amazon 数据源及 Trendyol 浏览器状态检查；Trendyol 无需密钥。
 - `research_category_select(platform=amazon, marketplace=US)`：原美国类目研究及92分口径；`platform=trendyol, marketplace=SA`：仅沙特关键词需求池，旧92分代理不用于定品。

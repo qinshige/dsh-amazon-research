@@ -24,7 +24,7 @@ import { registerRoutes } from './host/routes.js';
 import { resetBrowserCache } from './host/web/chrome.js';
 
 export const name = 'dsh-amazon-research';
-export const version = '0.8.0';
+export const version = '0.9.0';
 
 /** 工具是硬依赖；缺了它插件没有意义。 */
 export const inject = ['tools'];
@@ -38,7 +38,7 @@ const bt = String.fromCharCode(96);
 
 const GUIDANCE_TEXT = [
   '## 多平台选品研究（插件 dsh-amazon-research）',
-  '先确认市场与平台：美国站保留原 Amazon US 选品功能；仅沙特站限制为 Trendyol.sa（SA/SAR），不使用 Amazon.sa、Temu、AliExpress 替代沙特需求。美国与沙特模型不可混用。调用工具明确传 platform 与 marketplace，避免沿用上次市场。',
+  '先确认市场与平台：美国站保留原 Amazon US 选品功能；沙特站销售平台固定是 Trendyol.sa（SA/SAR），可用 research_saudi_discovery 在沙特亚马逊找品，但 Amazon.sa 只做需求交叉验证，不产生候选、不参与利润与评分。Temu/AliExpress 不参与沙特选品。美国与沙特模型不可混用。调用工具明确传 platform 与 marketplace，避免沿用上次市场。',
   '### Amazon 美国及原有非沙特站点',
   '先加载 amazon-category-selection（类目）或 amazon-product-selection（单品）技能。research_provider_status 确认 Sellersprite 配置；密钥未配置时到「选品研究→设置」填写 Secret Key。',
   'research_category_select(platform=amazon, marketplace=US, category或nodeIdPath, limit, 可选unitCost)保留原类目研究；调用前说明预计9–11次数据服务额度。原92分制：normalized=total/92*100，评级≥80优秀/≥60良好/≥40一般/<40较差；同时报告score/max及归一化值。',
@@ -49,12 +49,13 @@ const GUIDANCE_TEXT = [
   '先加载 trendyol-saudi-product-selection 技能，再 research_product_select(action=plan) 读取完整输入模板。用户提供的工作流 v1 为执行依据；不得静默修改核心规则。',
   '先 research_provider_status(provider=trendyol-web)。research_category_select 只建立需求池，调用前说明 pages+detailTopN 页面请求上限；国家/币种必须核验，验证码/限流立即停止。旧92分代理不得用于定品。',
   '严格顺序：需求池→需求门槛→BB/LD路线→商品身份→合规→物流→1688寻源核价→贡献利润→退货损失→质量→100分评分→样品→小批量测试→扩货/终止→标准输出。未知暂停，不跳步。',
-  '需求四项至少两项；BB同一目录身份必须一致，类似或改良转LD独立页面，不借用评分和Buybox。合规未知先暂停，不算利润。',
-  '沙特候选使用research_saudi_source：plan取selection模板→collect查1688→人工同款/SKU/数量核价与计费重证据→prepare回填→research_product_select screen。collect前说明最多1搜索页+detailLimit详情页，占网页查询次数；遇验证/登录/限流停止。缺报价/费用证据暂停，不用最低卡片价或净重；类似款先明确LD。国内运费/包装按每销售单位独立披露，未扣于固定公式，不称完整净利润；旧候选重跑也需补寻源。仅准备测算，不下单。',
+  '需求四项至少两项，且至少一项必须来自 Trendyol.sa（Amazon.sa 观测只能交叉验证，不能凑数替代）；BB同一目录身份必须一致，类似或改良转LD独立页面，不借用评分和Buybox。合规未知先暂停，不算利润。',
+  '找品用 research_saudi_discovery：plan取入口与观测模板→collect读 Amazon.sa 前台（调用前说明最多pages个页面请求，遇验证码/登录/限流停止）→prepare校验合并观测。观测填进候选 demand.observations，用 observationIds 被信号引用；Amazon.sa 独有商品只进「找品待匹配池」，不进候选池；必须在 Trendyol.sa 找到同款才能成为候选。',
+  '沙特候选使用research_saudi_source：plan取selection模板→collect查1688→人工同款/SKU/数量核价与计费重证据→prepare回填→research_product_select screen。collect前说明最多1搜索页+detailLimit详情页，占网页查询次数；遇验证/登录/限流停止。缺报价/费用证据暂停，不用最低卡片价或净重；类似款先明确LD。国内运费/包装按每销售单位独立披露，未扣于固定公式，不称完整净利润；旧候选重跑也需补寻源与观测。仅准备测算，不下单。',
   '固定工作流口径：含税售价/1.15 - 售价*(10%+8%+4%) - ((采购人民币+计费重kg*68)/1.8+10+5)。利润≤0淘汰；利润率<10%淘汰或谈价，10–15%有条件，≥15%优先测试。',
   '标准件预估退回15 SAR；仓库等未知不填0；退货损失>40 SAR或>售价60%高风险。预期退货成本单列，不与4%售后准备重复扣减。',
   '仅通过门槛后BB人工有证据评分30/30/15/15/10，总分100；70以上样品，60–69观察，60以下淘汰；LD单列不排名。',
-  'research_product_select(action=screen,candidates=[按plan模板填数据])生成最终对标品.md、淘汰候选.md、利润测算.xlsx、evidence索引。证据索引不代表截图已采集；缺失来源/日期/费用必须如实标记。',
+  'research_product_select(action=screen,candidates=[按plan模板填数据])生成最终对标品.md、淘汰候选.md、利润测算.xlsx、找品待匹配池.md、evidence索引。证据索引不代表截图已采集；缺失来源/日期/费用必须如实标记。',
   '样品2–3件，首批20–30件；1000展示、50–100有效点击、20–30单为内部测试观察阈值，每7–14天竞品快照。未真实满足扩货条件不得推荐扩货。',
   '读页面用 research_page：先 snapshot 拿编号控件（ref 如 e12，跨快照稳定），再 click/type 传 ref；长页面用 delta=true。navigate/back/forward/reload 做导航，screenshot 只在 CDP 驱动下可用。',
   '浏览器驱动默认 auto：Chrome 开了 --remote-debugging-port 就走 CDP（真实输入、可截图），否则 macOS 回落 AppleScript（需「允许 Apple Events 执行 JavaScript」）；Windows/Linux 只支持 CDP，未开调试端口会直接提示启动命令（插件不会自行启动浏览器）。action=backend 可查看当前驱动与端口，不绕过验证码/登录/付费墙。',

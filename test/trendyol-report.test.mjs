@@ -20,10 +20,19 @@ function unzipLocal(buffer) {
 }
 async function root() { return mkdtemp(join(tmpdir(), 'trendyol-report-test-')); }
 const yes = () => ({ status: 'passed', evidence: '测试人工核验证据' });
+const observation = (id, signalType, value) => ({
+  id, sourcePlatform: 'trendyol-sa', sourceUrl: 'https://www.trendyol.sa/en/fixture-p-1',
+  observedAt: '2026-11-17', signalType, value, unit: 'count',
+  scope: { keyword: 'fixture', category: null, listingId: 'fixture-p-1', listingUrl: 'https://www.trendyol.sa/en/fixture-p-1', position: 1, timeWindow: '2026-11-17', note: '' },
+  candidateRelation: 'same-product', comparability: 'existence-check',
+  capture: { method: 'browser-dom-structured', locator: 'search card', evidenceRef: null },
+});
 function preReturns() {
   const c = buildTrendyolPlan().inputTemplate; c.id = 'test'; c.name = '测试夹具';
   c.pool = { keyword: 'fixture', url: 'https://www.trendyol.sa/en/fixture', priceSAR: 100, rating: 4, ratingCount: 100, reviewCount: 10, ranking: '无榜单', brand: 'Generic', observedAt: '2026-11-17' };
-  c.demand.signals = [yes(), yes(), yes(), yes()]; c.route.evidence = '实物匹配';
+  c.demand.observations = [observation('t1', 'rating-count', 100), observation('t2', 'review-count', 10)];
+  c.demand.signals = [{ status: 'passed', evidence: '人工核验', observationIds: ['t1'] }, { status: 'passed', evidence: '人工核验', observationIds: ['t2'] }, yes(), yes()];
+  c.route.evidence = '实物匹配';
   for (const group of ['identity', 'compliance', 'logistics']) for (const key of Object.keys(c[group])) if (key !== 'billableWeightKg') c[group][key] = yes();
   c.logistics.billableWeightKg = .1;
   c.economics = { priceSAR: 100, purchaseCNY: 2, billableWeightKg: .1, evidence: '实际报价' };

@@ -4,10 +4,12 @@
  * No browser, I/O, clocks, inferred scores, FX lookup, or invented scenarios.
  */
 import { prepareSaudiCandidate } from '../sourcing/saudi.js';
+import { DEMAND_POLICY, validateObservations } from './sa-discovery.js';
 
 export const WORKFLOW_MODEL = 'trendyol-saudi-workflow-v1';
 export const WORKFLOW_STEPS = ['pool', 'demand', 'route', 'identity', 'compliance', 'logistics', 'sourcing', 'economics', 'returns', 'quality', 'scoring', 'samples', 'test', 'expansion'];
 export const SCORE_WEIGHTS = { demand: 30, economics: 30, logistics: 15, quality: 15, supply: 10 };
+export const STRICT_DEMAND_POLICY = Object.freeze({ mode: 'strict', ...DEMAND_POLICY });
 export const FIXED_FEES = { vatRate: 0.15, commissionRate: 0.10, adRate: 0.08, afterSalesRate: 0.04, freightCNYPerKg: 68, cnyPerSAR: 1.8, forwardSAR: 10, fixedSAR: 5, provisionalReturnSAR: 15 };
 const IDENTITY = ['brandAndAuthenticity', 'barcodeAndProductCode', 'attributes', 'packagingLabelsOriginFunction', 'supplierPhotosAndSource', 'resaleAndCatalogPermission', 'ipSearch'];
 const COMPLIANCE = ['saberSaso', 'specialCategory', 'electricalBatteryWireless', 'intellectualProperty', 'arabicLabelsOriginImporter'];
@@ -34,14 +36,16 @@ const money = (input) => {
 export function buildTrendyolPlan({ category = '' } = {}) {
   return {
     model: WORKFLOW_MODEL, platform: 'trendyol-sa', marketplace: 'SA', currency: 'SAR', category,
+    salesPlatform: 'trendyol-sa', demandSources: ['trendyol-sa', 'amazon-sa'], demandPolicy: { ...STRICT_DEMAND_POLICY },
     steps: [...WORKFLOW_STEPS], weights: { ...SCORE_WEIGHTS }, fees: { ...FIXED_FEES },
     sourcingTool: { name: 'research_saudi_source', actions: ['plan', 'collect', 'prepare'], instructions: '需求池形成后collect查1688货源辅助同款核验；plan取得selection模板，选定真实SKU/数量/报价及计费重、每销售单位额外费用后prepare。身份/合规/物流通过后才在sourcing关卡放行利润；返回candidate再screen。不下单。旧候选需补寻源证据，历史报告不重写。' },
-    rules: ['未知立即暂停，不执行后续步骤；不以缺失值充零', '需求四项至少两项有证据通过', 'BB人工评分；LD独立页面、独立机会池，不共用总分排名', '计费重≤0.40kg是初期优先条件，不是源文规定的一票否决', '退货损失>40 SAR或>售价60%为高风险，暂停复核', '三档情景必须提供真实输入；缺失不自动生成', '售后准备4%已纳入贡献利润，预期退货成本只并列展示，不能重复扣减'],
+    discoveryTool: { name: 'research_saudi_discovery', actions: ['plan', 'collect', 'prepare'], instructions: 'Amazon.sa 只做找品与需求交叉验证：plan取入口与观测模板，collect读 Amazon.sa 前台（说明页数预算），prepare校验合并观测。观测填进 candidate.demand.observations，用 observationIds 被信号引用；Amazon.sa 独有商品只进待匹配池，不进候选池。' },
+    rules: ['未知立即暂停，不执行后续步骤；不以缺失值充零', '需求四项至少两项有证据通过，且至少一项必须来自 Trendyol.sa', 'Amazon.sa 只是找品与需求交叉验证来源，不产生候选、不参与利润与评分', 'BB人工评分；LD独立页面、独立机会池，不共用总分排名', '计费重≤0.40kg是初期优先条件，不是源文规定的一票否决', '退货损失>40 SAR或>售价60%为高风险，暂停复核', '三档情景必须提供真实输入；缺失不自动生成', '售后准备4%已纳入贡献利润，预期退货成本只并列展示，不能重复扣减'],
     thresholds: { demandSignals: 2, preferredWeightKg: 0.40, minimumMargin: 0.10, preferredMargin: 0.15, returnLossSAR: 40, returnLossPriceRatio: 0.60, sampleScore: 70, observeScore: 60, minimumSamples: 2, initialBatch: [20, 30], impressions: 1000, effectiveClicks: [50, 100], orders: [20, 30], snapshotDays: [7, 14] },
     inputTemplate: {
       id: '', name: '', platform: 'trendyol-sa',
       pool: { keyword: '', url: '', priceSAR: null, rating: null, ratingCount: null, reviewCount: null, ranking: '', brand: '', observedAt: '' },
-      demand: { signals: Array.from({ length: 4 }, blankCheck), snapshots: [] },
+      demand: { signals: Array.from({ length: 4 }, blankCheck), observations: [], snapshots: [] },
       route: { type: 'BB', evidence: '', unmetNeed: '', supplierUrl: '', newListing: blankCheck(), improvementValue: blankCheck(), launchCost: blankCheck() },
       identity: checks(IDENTITY), compliance: checks(COMPLIANCE), logistics: { ...checks(LOGISTICS), billableWeightKg: null },
       sourcing: { status: 'paused', missing: ['1688同款、所选SKU报价、计费重及额外费用证据'], offer: null, selection: null },
@@ -53,15 +57,15 @@ export function buildTrendyolPlan({ category = '' } = {}) {
       test: { catalogApproved: blankCheck(), batchUnits: null, impressions: null, effectiveClicks: null, orders: null, actualReturns: blankCheck(), evidence: '' },
       expansion: { checks: checks(EXPANSION), termination: Object.fromEntries(TERMINATION.map((key) => [key, { triggered: null, evidence: '' }])) },
     },
-    fieldDescriptions: { 'route.unmetNeed': 'LD目标用户尚未满足的问题，记录评论或使用场景依据；未知留空并标缺', 'route.supplierUrl': 'LD对应1688/Alibaba候选供应链接，仅供应链核验来源，不证明沙特需求；未知留空并标缺' },
+    fieldDescriptions: { 'route.unmetNeed': 'LD目标用户尚未满足的问题，记录评论或使用场景依据；未知留空并标缺', 'route.supplierUrl': 'LD对应1688/Alibaba候选供应链接，仅供应链核验来源，不证明沙特需求；未知留空并标缺', 'demand.observations': '分平台需求观测：sourcePlatform 只能是 trendyol-sa 或 amazon-sa；每条必须带来源URL、观测日期、信号类型、可比性与采集方式。Amazon.sa 观测最多支撑需求门槛，不能替代 Trendyol.sa 验证。', 'demand.signals': '每个信号用 observationIds 引用观测，引擎自行判定是否通过：不接受直接给 passed；同一观测不得被多个信号重复引用；not-comparable 观测不计入。需求 4 项至少 2 项通过，其中至少 1 项必须来自 Trendyol.sa。' },
     demandSignalOrder: ['multipleSellersOrSimilarProducts', 'sameStructure100RatingsOrTarget30AndGrowing', 'recentRankingSalesViewsFavoritesOrGrowth', 'reviewsShowUseCaseAndUnmetNeed'],
-    outputs: ['最终对标品.md', '淘汰候选.md', '利润测算.xlsx', 'evidence/'],
+    outputs: ['最终对标品.md', '淘汰候选.md', '利润测算.xlsx', '找品待匹配池.md', 'evidence/'],
   };
 }
 
-function evaluate(candidate, index) {
+function evaluate(candidate, index, demandPolicy = null) {
   const c = candidate && typeof candidate === 'object' ? candidate : {};
-  const r = { id: c.id ?? String(index + 1), name: c.name ?? '', route: null, status: 'paused', stoppedAt: null, reason: '', stages: [], economics: null, returns: null, score: null, scenarios: null, test: null, warnings: [] };
+  const r = { id: c.id ?? String(index + 1), name: c.name ?? '', route: null, status: 'paused', stoppedAt: null, reason: '', stages: [], demand: null, economics: null, returns: null, score: null, scenarios: null, test: null, warnings: [] };
   const stop = (stage, reason, status = 'paused') => { r.stoppedAt = stage; r.reason = reason; r.status = status; r.stages.push({ stage, status, reason }); return r; };
   // Known stop conditions override every unknown gate and incomplete test observation.
   // Do not compute economics, scenarios, or scores after a documented stop signal.
@@ -85,10 +89,43 @@ function evaluate(candidate, index) {
   pass('pool');
   const signals = c.demand?.signals;
   if (!Array.isArray(signals) || signals.length !== 4) return stop('demand', '需要按计划顺序记录四项需求信号');
-  const passed = signals.filter((s) => checkState(s) === 'passed').length;
-  const unknown = signals.filter((s) => checkState(s) === 'unknown').length;
-  if (passed < 2) return stop('demand', `需求门槛仅${passed}/4通过`, passed + unknown < 2 ? 'eliminated' : 'paused');
-  pass('demand', `${passed}/4有证据通过`);
+  const observations = Array.isArray(c.demand?.observations) ? c.demand.observations : [];
+  const strict = demandPolicy?.mode === 'strict';
+  const minimumPassed = Number.isInteger(demandPolicy?.minimumPassed) ? demandPolicy.minimumPassed : DEMAND_POLICY.minimumPassed;
+  const minimumTrendyol = Number.isInteger(demandPolicy?.minimumTrendyolPassed) ? demandPolicy.minimumTrendyolPassed : DEMAND_POLICY.minimumTrendyolPassed;
+  if (!observations.length) {
+    if (strict) return stop('demand', '需要分平台需求观测（demand.observations）：Amazon.sa 用 research_saudi_discovery 采集，Trendyol.sa 需实际核验；未提供不得进入需求门槛');
+    const passedLegacy = signals.filter((s) => checkState(s) === 'passed').length;
+    const unknownLegacy = signals.filter((s) => checkState(s) === 'unknown').length;
+    if (passedLegacy < minimumPassed) return stop('demand', `需求门槛仅${passedLegacy}/4通过`, passedLegacy + unknownLegacy < minimumPassed ? 'eliminated' : 'paused');
+    r.demand = { verified: false, passed: passedLegacy, trendyolPassed: null, observations: [], signals: [] };
+    r.warnings.push('未提供分平台观测（demand.observations），无法核验「至少1项来自Trendyol.sa」；新候选必须补齐观测。');
+    pass('demand', `${passedLegacy}/4有证据通过（未分平台核验）`);
+  } else {
+    const validation = validateObservations(observations);
+    if (!validation.ok) return stop('demand', '需求观测不合格：' + validation.errors.slice(0, 3).join('；'));
+    const byId = new Map(observations.map((item) => [item.id, item]));
+    const used = new Set();
+    const evaluated = signals.map((signal, signalIndex) => {
+      const ids = Array.isArray(signal?.observationIds) ? signal.observationIds.filter((id) => typeof id === 'string' && byId.has(id)) : [];
+      const duplicate = ids.filter((id) => used.has(id));
+      ids.forEach((id) => used.add(id));
+      const notComparable = ids.filter((id) => byId.get(id).comparability === 'not-comparable');
+      const ok = ids.length > 0 && duplicate.length === 0 && notComparable.length === 0 && text(signal?.evidence);
+      return { index: signalIndex + 1, status: ok ? 'passed' : 'unknown', observationIds: ids, platforms: ids.map((id) => byId.get(id).sourcePlatform), duplicate, notComparable };
+    });
+    const passed = evaluated.filter((item) => item.status === 'passed').length;
+    const trendyolPassed = evaluated.filter((item) => item.status === 'passed' && item.platforms.includes('trendyol-sa')).length;
+    const unknown = evaluated.filter((item) => item.status === 'unknown').length;
+    r.demand = { verified: true, passed, trendyolPassed, observations, signals: evaluated };
+    const duplicateIds = [...new Set(evaluated.flatMap((item) => item.duplicate))];
+    if (duplicateIds.length) return stop('demand', '同一观测被多个信号重复引用：' + duplicateIds.join(', '));
+    const notComparableIds = [...new Set(evaluated.flatMap((item) => item.notComparable))];
+    if (notComparableIds.length) return stop('demand', '不可比观测不能计入需求门槛：' + notComparableIds.join(', '));
+    if (passed < minimumPassed) return stop('demand', `需求门槛仅${passed}/4通过（要求至少${minimumPassed}项）`, passed + unknown < minimumPassed ? 'eliminated' : 'paused');
+    if (trendyolPassed < minimumTrendyol) return stop('demand', `通过的${passed}项中来自Trendyol.sa的只有${trendyolPassed}项，要求至少${minimumTrendyol}项；Amazon.sa 观测不能替代 Trendyol.sa 需求验证`);
+    pass('demand', `${passed}/4有证据通过，其中Trendyol.sa ${trendyolPassed}项`);
+  }
   if (!['BB', 'LD'].includes(c.route?.type) || !text(c.route?.evidence)) return stop('route', '须明确BB同款或LD改良路线及依据');
   r.route = c.route.type;
   if (r.route === 'LD') {
@@ -161,9 +198,10 @@ function evaluate(candidate, index) {
   pass('expansion'); r.status = 'expand-eligible'; r.reason = '扩货条件均有依据通过；本结果不执行采购'; return r;
 }
 
-export function evaluateTrendyolCandidates({ candidates = [], observedAt = null } = {}) {
+export function evaluateTrendyolCandidates({ candidates = [], observedAt = null, demandPolicy = null } = {}) {
   if (!Array.isArray(candidates)) throw new TypeError('candidates must be an array');
-  const results = candidates.map(evaluate);
+  const policy = demandPolicy && typeof demandPolicy === 'object' ? demandPolicy : null;
+  const results = candidates.map((candidate, index) => evaluate(candidate, index, policy));
   return { model: WORKFLOW_MODEL, platform: 'trendyol-sa', currency: 'SAR', observedAt, candidates: results,
     bbRanking: results.filter((r) => r.route === 'BB' && r.score && !['eliminated', 'stop-replenishment'].includes(r.status)).map((r) => ({ id: r.id, score: r.score.total, status: r.status })).sort((a, b) => b.score - a.score),
     ldCandidates: results.filter((r) => r.route === 'LD'), eliminated: results.filter((r) => r.status === 'eliminated'), paused: results.filter((r) => r.status === 'paused'),
