@@ -8,7 +8,7 @@ import { currentSession } from './live.js';
 const API_PREFIX = '/amazon-research/api';
 const MAX_JSON_BYTES = 64 * 1024;
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-const FILE_WHITELIST = /^(report\.md|最终对标品\.md|淘汰候选\.md|利润测算\.xlsx|provenance\.json|evaluation\.json|evidence\/[\p{L}\p{N}._-]+\.(?:json|md)|dashboard\.html|scores\.json|market\.json|manifest\.json|live\/(snapshot\.json|frame\.jpg|frame\.png|events\.ndjson)|tables\/[\p{L}\p{N}._-]+\.csv)$/u;
+const FILE_WHITELIST = /^(report\.md|最终对标品\.md|淘汰候选\.md|利润测算\.xlsx|provenance\.json|evaluation\.json|evidence\/[\p{L}\p{N}._-]+\.(?:json|md)|dashboard\.html|scores\.json|market\.json|manifest\.json|找品待匹配池\.md|找品来源\.json|翻查报告\.md|live\/(snapshot\.json|frame\.jpg|frame\.png|events\.ndjson)|tables\/[\p{L}\p{N}._-]+\.csv)$/u;
 /**
  * 数据源状态探测超时（毫秒）——必须显著小于前端 8 秒超时。
  * 实测：Chrome 标签页多时 listTabs 要 1.3~2.0 秒，2.5 秒会误报「连接失败」，放宽到 6 秒。

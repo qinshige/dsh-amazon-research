@@ -492,7 +492,7 @@ window.__ModuleLoader__.load({
     }
 
     /** 宿主允许按运行读取的文件白名单（host/routes.js 的 FILE_WHITELIST）。 */
-    const ARTIFACT_FILE = /^(report\.md|最终对标品\.md|淘汰候选\.md|利润测算\.xlsx|provenance\.json|evaluation\.json|evidence\/[\p{L}\p{N}._-]+\.(?:json|md)|dashboard\.html|scores\.json|market\.json|manifest\.json|tables\/[\p{L}\p{N}._-]+\.csv)$/u;
+    const ARTIFACT_FILE = /^(report\.md|最终对标品\.md|淘汰候选\.md|利润测算\.xlsx|provenance\.json|evaluation\.json|evidence\/[\p{L}\p{N}._-]+\.(?:json|md)|dashboard\.html|scores\.json|market\.json|manifest\.json|找品待匹配池\.md|找品来源\.json|翻查报告\.md|tables\/[\p{L}\p{N}._-]+\.csv)$/u;
 
     function artifactHref(runId, name) {
       if (API_BASE === null) return '';
@@ -2080,7 +2080,11 @@ window.__ModuleLoader__.load({
             fetchedAt === undefined || fetchedAt === null ? null : h('span', { style: S.tiny }, t('detail.fetchedAt', { time: formatTime(fetchedAt) }))
           )
         ),
-        ['trendyol', 'trendyol-sa'].includes(manifest.platform || detail.platform) ? h(Card, null, h('p', { style: S.muted }, '需求池旧92分仅为样本描述，不是推荐；工作流BB评分为100分，须通过全部前置关卡，详见报告。')) : h(ScoreCard, { score: scores }),
+        pickString(manifest.kind) === 'saudi-discovery'
+          ? h(Card, null, h('p', { style: S.muted }, '找品运行：只做 Amazon.sa 找品与需求交叉验证，不产生候选、不做评分。需求证据与下一步见下方报告。'))
+          : ['trendyol', 'trendyol-sa'].includes(manifest.platform || detail.platform)
+            ? h(Card, null, h('p', { style: S.muted }, '需求池旧92分仅为样本描述，不是推荐；工作流BB评分为100分，须通过全部前置关卡，详见报告。'))
+            : h(ScoreCard, { score: scores }),
         h(LiveCard, { runId: pickString(detail.runId, runId) }),
         h(ReportCard, { reportMd: reportMd }),
         h(ArtifactsCard, { artifacts: artifacts, runId: pickString(detail.runId, runId) }),

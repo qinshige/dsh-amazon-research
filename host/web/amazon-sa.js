@@ -9,7 +9,6 @@
 import { readFile } from 'node:fs/promises';
 import { openTab, closeTab, runJson, waitFor } from './chrome.js';
 import { AMAZON_SA_ORIGIN, amazonSaUrl, parseSarPrice, parseRating, parseCount, parseRank } from '../market/sa-discovery.js';
-
 const PAGE_DELAY_MS = 1200;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const snippetCache = new Map();
@@ -133,4 +132,59 @@ export async function collectAmazonSa({ mode = 'search', keyword = '', categoryU
     }
   }
   return { ok: true, mode, keyword: mode === 'search' ? String(keyword).trim() : null, categoryUrl: mode === 'bestsellers' ? categoryUrl : null, rows, sourceUrls, pagesFetched, diagnostics, fetchedAt: new Date().toISOString() };
+}
+
+/**
+ * 读取 Amazon.sa 商品详情页：价格、星级、评论数、品牌、卖家、库存、属性表与要点。
+ *
+ * 只读公开前台：不登录、不绕过验证码/限流/拒绝访问。
+ * 详情页比搜索卡片多出「品牌/卖家/尺寸/重量/材质」，是判断同款与成本的必需证据。
+ */
+export async function fetchAmazonSaDetail({ url, log = () => {}, open = openTab, close = closeTab } = {}) {
+  if (!amazonSaUrl(url)) throw fail('INVALID_ARGS', '商品链接必须是 www.amazon.sa 同源 https 地址');
+  const tabId = await open(url);
+  try {
+    await waitFor(tabId, 'location.origin === ' + JSON.stringify(AMAZON_SA_ORIGIN) + ' && document.readyState === "complete"', { timeout: 45 });
+    await pause(PAGE_DELAY_MS);
+    const guard = assertGuard(await runJson(tabId, await snippet('amazon-sa-guard.js')));
+    const data = await runJson(tabId, await snippet('amazon-sa-detail.js'));
+    const priceSAR = parseSarPrice(data?.priceText);
+    const rating = parseRating(data?.ratingText);
+    const reviewCount = parseCount(data?.reviewText);
+    const asin = (String(url).match(/\/dp\/([A-Z0-9]{10})/) || [])[1] || null;
+    const record = {
+      asin,
+      url: guard.url,
+      title: data?.title || null,
+      priceText: data?.priceText || null,
+      priceSAR,
+      rating,
+      ratingText: data?.ratingText || null,
+      reviewCount,
+      reviewText: data?.reviewText || null,
+      brand: data?.brand || null,
+      seller: data?.seller || null,
+      shipsFrom: data?.shipsFrom || null,
+      availability: data?.availability || null,
+      dimensions: data?.dimensions || null,
+      weight: data?.weight || null,
+      material: data?.material || null,
+      attributes: data?.attributes && typeof data.attributes === 'object' ? data.attributes : {},
+      bullets: Array.isArray(data?.bullets) ? data.bullets : [],
+      bestSellerText: data?.bestSellerText || null,
+      fetchedAt: new Date().toISOString(),
+      source: 'amazon.sa:详情页',
+    };
+    if (!record.title || (record.priceSAR === null && record.rating === null)) {
+      record.diagnostic = { reason: 'deterministic_detail_fields_missing', text: String(data?.title || '').slice(0, 200) };
+    }
+    log('Amazon.sa 详情：' + String(record.title || '').slice(0, 40) + '｜价 ' + (priceSAR ?? '未取到') + '｜评 ' + (rating ?? '未取到'));
+    return record;
+  } finally {
+    try {
+      await close(tabId);
+    } catch {
+      /* 关闭失败不影响已采集结果，也不重试 */
+    }
+  }
 }

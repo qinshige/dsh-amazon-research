@@ -10,7 +10,7 @@ import { buildTrendyolPlan, evaluateTrendyolCandidates, STRICT_DEMAND_POLICY } f
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { buildDiscoveryUrls, normalizeCard, assertGuard } from '../host/web/amazon-sa.js';
+import { buildDiscoveryUrls, normalizeCard, assertGuard, fetchAmazonSaDetail } from '../host/web/amazon-sa.js';
 import { createSaudiDiscoveryTool } from '../host/market/sa-discovery-tool.js';
 
 const observation = (overrides = {}) => ({
@@ -224,8 +224,42 @@ test('旧候选（只有 signals、无观测）在非严格模式下行为不变
   assert.notEqual(r.stoppedAt, 'demand');
 });
 
-test('找品工具 collect 全流程：采集行转观测、落盘待匹配池、不产生候选', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'sa-discovery-run-'));
+test('找品运行会写 report.md 并带 platform，面板据此渲染而非显示空评分卡', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'sa-discovery-report-'));
+  try {
+    await writeFile(join(dir, 'config.json'), JSON.stringify({ platform: 'trendyol', marketplace: 'SA', provider: 'trendyol-web', outputRoot: join(dir, 'runs') }));
+    const stub = async () => ({
+      ok: true,
+      rows: [{ kind: 'search', asin: 'B0TEST1234', title: 'Cup Holder', url: 'https://www.amazon.sa/dp/B0TEST1234', pageUrl: 'https://www.amazon.sa/s?k=cup', position: 1, priceText: 'SAR 39.99', ratingText: '4.4 out of 5 stars', reviewText: '1,024', sponsored: false }],
+      sourceUrls: ['https://www.amazon.sa/s?k=cup'],
+      pagesFetched: 1,
+      diagnostics: [],
+      fetchedAt: '2026-11-19T09:00:00.000Z',
+    });
+    const tool = createSaudiDiscoveryTool({ dataDir: dir, collect: stub });
+    const result = await tool.execute({ action: 'collect', platform: 'amazon-sa', marketplace: 'SA', mode: 'search', keyword: 'cup holder' });
+    assert.equal(result.ok, true);
+    const report = await readFile(result.reportPath, 'utf8');
+    assert.match(report, /找品与需求交叉验证/);
+    assert.match(report, /B0TEST1234/);
+    assert.match(report, /不进候选池/);
+    const manifest = JSON.parse(await readFile(join(result.dir, 'manifest.json'), 'utf8'));
+    assert.equal(manifest.kind, 'saudi-discovery');
+    assert.equal(manifest.platform, 'trendyol');
+    assert.ok(manifest.artifacts.some((a) => a.name === 'report.md'));
+    assert.ok(manifest.artifacts.some((a) => a.name === '找品待匹配池.md'));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('Amazon.sa 详情页：只接受 amazon.sa 同源链接，越权链接直接拒绝', async () => {
+  await assert.rejects(() => fetchAmazonSaDetail({ url: 'https://www.amazon.com/dp/B0TEST1234' }), (error) => error?.code === 'INVALID_ARGS');
+  await assert.rejects(() => fetchAmazonSaDetail({ url: 'https://www.amazon.sa.evil.test/dp/B0TEST1234' }), (error) => error?.code === 'INVALID_ARGS');
+  await assert.rejects(() => fetchAmazonSaDetail({ url: 'http://www.amazon.sa/dp/B0TEST1234' }), (error) => error?.code === 'INVALID_ARGS');
+});
+
+test('找品工具 collect 全流程：采集行转观测、落盘待匹配池、不产生候选', async () => {  const dir = await mkdtemp(join(tmpdir(), 'sa-discovery-run-'));
   try {
     await writeFile(join(dir, 'config.json'), JSON.stringify({ platform: 'trendyol', marketplace: 'SA', provider: 'trendyol-web', outputRoot: join(dir, 'runs') }));
     const stub = async () => ({
