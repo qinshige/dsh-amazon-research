@@ -39,7 +39,7 @@ function preReturns() {
   return withTestQuote(c);
 }
 test('persists standard outputs, binary xlsx, complete stage order, and provenance hash', async () => {
-  const outputRoot = await root(); const c = buildTrendyolPlan().inputTemplate; c.id = 'paused';
+  const outputRoot = await root(); const c = buildTrendyolPlan().inputTemplate; c.id = 'fixture-candidate-01';
   c.evidence = [{ path: '/actual/user-supplied/photo.png', description: '用户提供；不验证' }];
   const r = await runTrendyolWorkflow({ candidates: [c], outputRoot, registryDir: join(outputRoot, 'registry'), title: '测试报告' });
   assert.equal(r.summary.paused, 1); assert.equal(r.summary.expandEligible, 0);
@@ -48,6 +48,11 @@ test('persists standard outputs, binary xlsx, complete stage order, and provenan
   assert.equal(createHash('sha256').update(JSON.stringify(provenance.input)).digest('hex'), r.inputHash);
   const evidence = JSON.parse(await readFile(join(r.dir, 'evidence/index.json'), 'utf8')); assert.equal(evidence[0].path, c.evidence[0].path); assert.equal(evidence[0].verified, false);
   const manifest = JSON.parse(await readFile(join(r.dir, 'manifest.json'), 'utf8')); assert.equal(manifest.platform, 'trendyol'); assert.equal(manifest.site, 'SA'); assert.ok(manifest.artifacts.some(a=>a.name==='利润测算.xlsx'));
+  // 报告与工作簿一律输出中文，不外泄英文状态码
+  const body = await readFile(r.reportPath, 'utf8');
+  assert.match(body, /怎么读这份报告/);
+  assert.match(body, /卡在哪一关/);
+  assert.doesNotMatch(body, /\bpaused\b|\beliminated\b|\bexpand-eligible\b/);
   const zip = unzipLocal(await readFile(r.workbookPath)); assert.match(zip['xl/workbook.xml'], /三档情景/); assert.match(zip['xl/worksheets/sheet1.xml'], /待确认/); assert.doesNotMatch(zip['xl/worksheets/sheet1.xml'], /<v>/);
   const registry = JSON.parse(await readFile(join(outputRoot, 'registry/run-index.json'), 'utf8')); assert.equal(registry[0].runId, r.runId);
 });
@@ -55,7 +60,7 @@ test('economic results and algebra sensitivity only appear once reached; missing
   const r = await runTrendyolWorkflow({ candidates: [preReturns()], outputRoot: await root() });
   const zip = unzipLocal(await readFile(r.workbookPath));
   assert.match(zip['xl/worksheets/sheet1.xml'], /<v>100<\/v>/);
-  assert.match(zip['xl/worksheets/sheet2.xml'], /pessimistic/); assert.doesNotMatch(zip['xl/worksheets/sheet2.xml'], /<v>/);
+  assert.match(zip['xl/worksheets/sheet2.xml'], /悲观情景/); assert.doesNotMatch(zip['xl/worksheets/sheet2.xml'], /<v>/);
   const upper = (100/1.15 - 100*.22 - 15)*1.8 - .1*68;
   assert.ok(zip['xl/worksheets/sheet4.xml'].includes('<v>'+upper+'</v>'));
   const evaluation = JSON.parse(await readFile(join(r.dir, 'evaluation.json'), 'utf8')); assert.equal(evaluation.candidates[0].stoppedAt, 'returns'); assert.equal(evaluation.candidates[0].score, null);
