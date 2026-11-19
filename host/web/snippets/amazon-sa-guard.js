@@ -7,7 +7,7 @@
   const signIn = /\/ap\/signin/i.test(url) || /Sign in to continue|تسجيل الدخول للمتابعة/i.test(clean);
   const accessDenied = /Access Denied|Sorry, we just need to make sure you're not a robot/i.test(clean);
   const rateLimited = /automated access to Amazon data|Request was throttled|503 Service Unavailable|Too many requests/i.test(clean);
-  const currencySAR = /(?:SAR|ر\.?\s?س\.?|﷼)\s?[\d,]+/.test(clean) || /\bSAR\b/.test(clean);
+  const currencySAR = /(?:SAR|ريال|ر\.?\s?س\.?|﷼)\s?[\d,]+/.test(clean) || /\bSAR\b/.test(clean);
   const currencyUSD = /\$\s?[\d,]+/.test(clean);
   const lang = document.documentElement.getAttribute('lang') || '';
   const empty = clean.replace(/\s+/g, '').length < 200;

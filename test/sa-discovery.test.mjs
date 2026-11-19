@@ -64,10 +64,12 @@ test('价格/评分/数量解析：带货币标记才认，解析不到就 null 
   assert.equal(parseSarPrice('SAR 39.99'), 39.99);
   assert.equal(parseSarPrice('1,299.00 SAR'), 1299);
   assert.equal(parseSarPrice('ر.س.‏ 12,50'), 12.5);
+  assert.equal(parseSarPrice('‏8.12 ريال'), 8.12);
   assert.equal(parseSarPrice('$19.99'), null);
   assert.equal(parseSarPrice(''), null);
   assert.equal(parseRating('4.3 out of 5 stars'), 4.3);
-  assert.equal(parseRating('4,7 من أصل 5 نجوم'), 4.7);
+  assert.equal(parseRating('4,7 من 5 نجوم'), 4.7);
+  assert.equal(parseRating('4.7 من أصل 5 نجوم'), 4.7);
   assert.equal(parseRating(''), null);
   assert.equal(parseCount('1,234'), 1234);
   assert.equal(parseCount('2.1K'), 2100);

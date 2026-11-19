@@ -60,12 +60,13 @@ export function trendyolSaUrl(value) {
   return strictOriginUrl(value, TRENDYOL_SA_ORIGIN);
 }
 
-/** 把 "SAR 39.99" / "39,99 SAR" / "ر.س.‏ 39.99" 解析为数字；不带货币标记时返回 null。 */
+/** 把 "SAR 39.99" / "39,99 SAR" / "‏8.12 ريال" / "ر.س.‏ 39.99" 解析为数字；不带货币标记时返回 null。 */
 export function parseSarPrice(input) {
   const arabic = (value) => String(value).replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
   const raw = arabic(String(input ?? '')).replace(/\u00a0/g, ' ').replace(/[\u200e\u200f]/g, '').trim();
   if (!raw) return null;
-  const marker = /(?:SAR|ر\.?\s?س\.?|﷼)/i.test(raw);
+  // 沙特前台常见三种写法：SAR / ر.س. / ريال
+  const marker = /(?:SAR|ريال|ر\.?\s?س\.?|﷼)/i.test(raw);
   if (!marker) return null;
   const digits = raw.replace(/[^\d.,]/g, ' ').trim().replace(/^[.,\s]+/, '').split(/\s+/)[0] || '';
   if (!/\d/.test(digits)) return null;
@@ -79,12 +80,23 @@ export function parseSarPrice(input) {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
-/** "4.3 out of 5 stars" / "4,3 من أصل 5 نجوم" → 4.3 */
+/** "4.3 out of 5 stars" / "4,3 من 5 نجوم" / "4.3 de 5 estrellas" → 4.3 */
 export function parseRating(input) {
   const raw = String(input ?? '');
-  const match = raw.match(/(\d(?:[.,]\d)?)/);
-  if (!match) return null;
-  const value = Number.parseFloat(match[1].replace(',', '.'));
+  // 优先匹配「X ... 5 ...」这类明确星级（阿语可能是「4.7 من أصل 5 نجوم」），避免抓到「5 个评论」
+  const explicit = raw.match(/(\d(?:[.,]\d)?)\s*(?:out of|من|de|de un|of)\s*(?:أصل\s*)?5/i);
+  if (explicit) {
+    const value = Number.parseFloat(explicit[1].replace(',', '.'));
+    return Number.isFinite(value) && value >= 0 && value <= 5 ? value : null;
+  }
+  const stars = raw.match(/(\d(?:[.,]\d)?)\s*(?:نجوم|stars?|estrella|sterne)/i);
+  if (stars) {
+    const value = Number.parseFloat(stars[1].replace(',', '.'));
+    return Number.isFinite(value) && value >= 0 && value <= 5 ? value : null;
+  }
+  const fallback = raw.match(/(\d(?:[.,]\d)?)/);
+  if (!fallback) return null;
+  const value = Number.parseFloat(fallback[1].replace(',', '.'));
   return Number.isFinite(value) && value >= 0 && value <= 5 ? value : null;
 }
 

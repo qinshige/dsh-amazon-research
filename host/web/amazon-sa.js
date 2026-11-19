@@ -98,7 +98,9 @@ export async function collectAmazonSa({ mode = 'search', keyword = '', categoryU
     const tabId = await open(url);
     let guard = null;
     try {
-      await waitFor(tabId, 'document.readyState === "complete"', { timeout: 45 });
+      // 刚开的标签页先停在 about:blank，readyState 立刻为 complete。
+      // 必须等到真正导航到目标域名再取守卫，否则会误判成 ORIGIN_MISMATCH。
+      await waitFor(tabId, 'location.origin === ' + JSON.stringify(AMAZON_SA_ORIGIN) + ' && document.readyState === "complete"', { timeout: 45 });
       await pause(PAGE_DELAY_MS);
       guard = assertGuard(await runJson(tabId, await snippet('amazon-sa-guard.js')));
       pagesFetched += 1;
